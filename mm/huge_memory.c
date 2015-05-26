@@ -998,7 +998,7 @@ static int do_huge_pmd_wp_page_fallback(struct mm_struct *mm,
 					       __GFP_OTHER_NODE,
 					       vma, address, page_to_nid(page));
 		if (unlikely(!pages[i] ||
-			     mem_cgroup_try_charge(pages[i], mm, GFP_KERNEL,
+			     mem_cgroup_try_charge_anon(pages[i], mm, GFP_KERNEL,
 						   &memcg))) {
 			if (pages[i])
 				put_page(pages[i]);
