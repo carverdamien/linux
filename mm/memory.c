@@ -2083,7 +2083,7 @@ static int wp_page_copy(struct mm_struct *mm, struct vm_area_struct *vma,
 	}
 	__SetPageUptodate(new_page);
 
-	if (mem_cgroup_try_charge(new_page, mm, GFP_KERNEL, &memcg))
+	if (mem_cgroup_try_charge_anon(new_page, mm, GFP_KERNEL, &memcg))
 		goto oom_free_new;
 
 	mmu_notifier_invalidate_range_start(mm, mmun_start, mmun_end);
