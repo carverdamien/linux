@@ -725,7 +725,7 @@ static int __do_huge_pmd_anonymous_page(struct mm_struct *mm,
 
 	VM_BUG_ON_PAGE(!PageCompound(page), page);
 
-	if (mem_cgroup_try_charge(page, mm, gfp, &memcg))
+	if (mem_cgroup_try_charge_anon(page, mm, gfp, &memcg))
 		return VM_FAULT_OOM;
 
 	pgtable = pte_alloc_one(mm, haddr);
