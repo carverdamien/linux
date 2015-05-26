@@ -2458,7 +2458,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 	if (!new_page)
 		return;
 
-	if (unlikely(mem_cgroup_try_charge(new_page, mm,
+	if (unlikely(mem_cgroup_try_charge_anon(new_page, mm,
 					   gfp, &memcg)))
 		return;
 
