@@ -5503,6 +5503,26 @@ out:
 }
 
 /**
+ * mem_cgroup_try_charge_anon - try charging a page of anonymous memory
+ * @page: page to charge
+ * @mm: mm context of the victim
+ * @gfp_mask: reclaim mode
+ * @memcgp: charged memcg return
+ *
+ * Returns 0 on success, with *@memcgp pointing to the charged memcg.
+ * Otherwise, an error code is returned.
+ *
+ * After page->mapping has been set up, the caller must finalize the
+ * charge with memrss_cgroup_commit_charge().  Or abort the transaction
+ * with memrss_cgroup_cancel_charge() in case page instantiation fails.
+ */
+inline int mem_cgroup_try_charge_anon(struct page *page, struct mm_struct *mm,
+			  gfp_t gfp_mask, struct mem_cgroup **memcgp)
+{
+	return mem_cgroup_try_charge(page,mm,gfp_mask,memcgp);
+}
+
+/**
  * mem_cgroup_commit_charge - commit a page charge
  * @page: page to charge
  * @memcg: memcg to charge the page to
