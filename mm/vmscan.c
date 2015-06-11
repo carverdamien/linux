@@ -80,6 +80,11 @@ struct scan_control {
 	 */
 	struct mem_cgroup *target_mem_cgroup;
 
+	/*
+	 * True if should not scan children
+	 */
+	bool target_mem_cgroup_only;
+
 	/* Scan (total_size >> priority) pages at once */
 	int priority;
 
@@ -2366,7 +2371,8 @@ static bool shrink_zone(struct zone *zone, struct scan_control *sc,
 			 * whole hierarchy is not sufficient.
 			 */
 			if (!global_reclaim(sc) &&
-					sc->nr_reclaimed >= sc->nr_to_reclaim) {
+					(sc->target_mem_cgroup_only ||
+					 sc->nr_reclaimed >= sc->nr_to_reclaim)) {
 				mem_cgroup_iter_break(root, memcg);
 				break;
 			}
