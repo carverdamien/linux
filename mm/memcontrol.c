@@ -3125,6 +3125,34 @@ out:
 	return retval;
 }
 
+static u64 mem_cgroup_over_charge_read(struct cgroup_subsys_state *css,
+				     struct cftype *cft)
+{
+	return (mem_cgroup_from_css(css)->over_charge_target != NULL);
+}
+
+static int mem_cgroup_over_charge_write(struct cgroup_subsys_state *css,
+				      struct cftype *cft, u64 val)
+{
+	int retval = 0;
+	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
+	struct mem_cgroup *parent_memcg = mem_cgroup_from_css(memcg->css.parent);
+
+	mutex_lock(&memcg_create_mutex);
+
+	if (parent_memcg)
+		if (!memcg->over_charge_target)
+			memcg->over_charge_target = parent_memcg; // TODO: Allow user to choose any cgroup
+		else
+			retval = -EBUSY;
+	else
+		retval = -EINVAL;
+
+	mutex_unlock(&memcg_create_mutex);
+
+	return retval;
+}
+
 static unsigned long tree_stat(struct mem_cgroup *memcg,
 			       enum mem_cgroup_stat_index idx)
 {
@@ -4274,6 +4302,11 @@ static struct cftype mem_cgroup_legacy_files[] = {
 		.name = "use_hierarchy",
 		.write_u64 = mem_cgroup_hierarchy_write,
 		.read_u64 = mem_cgroup_hierarchy_read,
+	},
+	{
+		.name = "over_charge",
+		.write_u64 = mem_cgroup_over_charge_write,
+		.read_u64 = mem_cgroup_over_charge_read,
 	},
 	{
 		.name = "cgroup.event_control",		/* XXX: for compat */
