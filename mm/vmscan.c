@@ -2845,7 +2845,8 @@ unsigned long mem_cgroup_shrink_node_zone(struct mem_cgroup *memcg,
 unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
 					   unsigned long nr_pages,
 					   gfp_t gfp_mask,
-					   bool may_swap)
+					   bool may_swap,
+					   bool may_free_children_pages)
 {
 	struct zonelist *zonelist;
 	unsigned long nr_reclaimed;
@@ -2855,6 +2856,7 @@ unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
 		.gfp_mask = (gfp_mask & GFP_RECLAIM_MASK) |
 				(GFP_HIGHUSER_MOVABLE & ~GFP_RECLAIM_MASK),
 		.target_mem_cgroup = memcg,
+		.target_mem_cgroup_only = !may_free_children_pages,
 		.priority = DEF_PRIORITY,
 		.may_writepage = !laptop_mode,
 		.may_unmap = 1,

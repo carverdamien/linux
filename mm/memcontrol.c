@@ -2270,7 +2270,7 @@ retry:
 	mem_cgroup_events(mem_over_limit, MEMCG_MAX, 1);
 
 	nr_reclaimed = try_to_free_mem_cgroup_pages(mem_over_limit, nr_pages,
-						    gfp_mask, may_swap);
+						    gfp_mask, may_swap, true);
 
 	if (mem_cgroup_margin(mem_over_limit) >= nr_pages)
 		goto retry;
@@ -2333,7 +2333,7 @@ done_restock:
 		if (page_counter_read(&memcg->memory) <= memcg->high)
 			continue;
 		mem_cgroup_events(memcg, MEMCG_HIGH, 1);
-		try_to_free_mem_cgroup_pages(memcg, nr_pages, gfp_mask, true);
+		try_to_free_mem_cgroup_pages(memcg, nr_pages, gfp_mask, true, true);
 	} while ((memcg = parent_mem_cgroup(memcg)));
 done:
 	return ret;
@@ -2862,7 +2862,7 @@ static int mem_cgroup_resize_limit(struct mem_cgroup *memcg,
 		if (!ret)
 			break;
 
-		try_to_free_mem_cgroup_pages(memcg, 1, GFP_KERNEL, true);
+		try_to_free_mem_cgroup_pages(memcg, 1, GFP_KERNEL, true, true);
 
 		curusage = page_counter_read(&memcg->memory);
 		/* Usage is reduced ? */
@@ -2913,7 +2913,7 @@ static int mem_cgroup_resize_memsw_limit(struct mem_cgroup *memcg,
 		if (!ret)
 			break;
 
-		try_to_free_mem_cgroup_pages(memcg, 1, GFP_KERNEL, false);
+		try_to_free_mem_cgroup_pages(memcg, 1, GFP_KERNEL, false, true);
 
 		curusage = page_counter_read(&memcg->memsw);
 		/* Usage is reduced ? */
@@ -3047,7 +3047,7 @@ static int mem_cgroup_force_empty(struct mem_cgroup *memcg)
 			return -EINTR;
 
 		progress = try_to_free_mem_cgroup_pages(memcg, 1,
-							GFP_KERNEL, true);
+							GFP_KERNEL, true, true);
 		if (!progress) {
 			nr_retries--;
 			/* maybe some writeback is necessary */
