@@ -2215,8 +2215,8 @@ static int memcg_cpu_hotplug_callback(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
-static int try_charge(struct mem_cgroup *memcg, gfp_t gfp_mask,
-		      unsigned int nr_pages)
+static int _try_charge(struct mem_cgroup *memcg, gfp_t gfp_mask,
+		      unsigned int nr_pages, bool may_free_children)
 {
 	unsigned int batch = max(CHARGE_BATCH, nr_pages);
 	int nr_retries = MEM_CGROUP_RECLAIM_RETRIES;
@@ -2270,7 +2270,7 @@ retry:
 	mem_cgroup_events(mem_over_limit, MEMCG_MAX, 1);
 
 	nr_reclaimed = try_to_free_mem_cgroup_pages(mem_over_limit, nr_pages,
-						    gfp_mask, may_swap, true);
+						    gfp_mask, may_swap, may_free_children);
 
 	if (mem_cgroup_margin(mem_over_limit) >= nr_pages)
 		goto retry;
@@ -2333,10 +2333,22 @@ done_restock:
 		if (page_counter_read(&memcg->memory) <= memcg->high)
 			continue;
 		mem_cgroup_events(memcg, MEMCG_HIGH, 1);
-		try_to_free_mem_cgroup_pages(memcg, nr_pages, gfp_mask, true, true);
+		try_to_free_mem_cgroup_pages(memcg, nr_pages, gfp_mask, true, may_free_children);
 	} while ((memcg = parent_mem_cgroup(memcg)));
 done:
 	return ret;
+}
+
+static inline int try_over_charge(struct mem_cgroup *memcg, gfp_t gfp_mask,
+		      unsigned int nr_pages)
+{
+	return _try_charge(memcg, gfp_mask, nr_pages, false);
+}
+
+static inline int try_charge(struct mem_cgroup *memcg, gfp_t gfp_mask,
+		      unsigned int nr_pages)
+{
+	return _try_charge(memcg, gfp_mask, nr_pages, true);
 }
 
 static void cancel_charge(struct mem_cgroup *memcg, unsigned int nr_pages)
