@@ -73,7 +73,7 @@ void mem_cgroup_events(struct mem_cgroup *memcg,
 
 bool mem_cgroup_low(struct mem_cgroup *root, struct mem_cgroup *memcg);
 
-int mem_cgroup_try_charge(struct page *page, struct mm_struct *mm,
+int mem_cgroup_try_charge_cache(struct page *page, struct mm_struct *mm,
 			  gfp_t gfp_mask, struct mem_cgroup **memcgp);
 int mem_cgroup_try_charge_anon(struct page *page, struct mm_struct *mm,
 			  gfp_t gfp_mask, struct mem_cgroup **memcgp);
@@ -209,7 +209,7 @@ static inline bool mem_cgroup_low(struct mem_cgroup *root,
 	return false;
 }
 
-static inline int mem_cgroup_try_charge(struct page *page, struct mm_struct *mm,
+static inline int mem_cgroup_try_charge_cache(struct page *page, struct mm_struct *mm,
 					gfp_t gfp_mask,
 					struct mem_cgroup **memcgp)
 {

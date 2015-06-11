@@ -553,7 +553,7 @@ static int __add_to_page_cache_locked(struct page *page,
 	VM_BUG_ON_PAGE(PageSwapBacked(page), page);
 
 	if (!huge) {
-		error = mem_cgroup_try_charge(page, current->mm,
+		error = mem_cgroup_try_charge_cache(page, current->mm,
 					      gfp_mask, &memcg);
 		if (error)
 			return error;

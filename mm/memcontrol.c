@@ -5457,7 +5457,7 @@ bool mem_cgroup_low(struct mem_cgroup *root, struct mem_cgroup *memcg)
  * charge with mem_cgroup_commit_charge().  Or abort the transaction
  * with mem_cgroup_cancel_charge() in case page instantiation fails.
  */
-int mem_cgroup_try_charge(struct page *page, struct mm_struct *mm,
+int mem_cgroup_try_charge_cache(struct page *page, struct mm_struct *mm,
 			  gfp_t gfp_mask, struct mem_cgroup **memcgp)
 {
 	struct mem_cgroup *memcg = NULL;
@@ -5519,7 +5519,7 @@ out:
 inline int mem_cgroup_try_charge_anon(struct page *page, struct mm_struct *mm,
 			  gfp_t gfp_mask, struct mem_cgroup **memcgp)
 {
-	return mem_cgroup_try_charge(page,mm,gfp_mask,memcgp);
+	return mem_cgroup_try_charge_cache(page,mm,gfp_mask,memcgp);
 }
 
 /**
