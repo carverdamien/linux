@@ -277,6 +277,8 @@ struct mem_cgroup {
 	/* vmpressure notifications */
 	struct vmpressure vmpressure;
 
+	struct mem_cgroup *over_charge_target;
+
 	/* css_online() has been completed */
 	int initialized;
 
@@ -5452,6 +5454,16 @@ bool mem_cgroup_low(struct mem_cgroup *root, struct mem_cgroup *memcg)
 	return true;
 }
 
+/*
+ * Heuristic
+ */
+static inline bool should_try_over_charge(struct page *page,
+										  struct mem_cgroup *target_memcg,
+										  struct mem_cgroup *memcg)
+{
+	return true;
+}
+
 /**
  * mem_cgroup_try_charge - try charging a page
  * @page: page to charge
@@ -5500,6 +5512,18 @@ int mem_cgroup_try_charge_cache(struct page *page, struct mm_struct *mm,
 		memcg = try_get_mem_cgroup_from_page(page);
 	if (!memcg)
 		memcg = get_mem_cgroup_from_mm(mm);
+
+	if (memcg->over_charge_target) {
+		if (should_try_over_charge(page, memcg->over_charge_target, memcg)) {
+			ret = try_over_charge(memcg->over_charge_target, gfp_mask, nr_pages);
+			css_put(&memcg->over_charge_target->css);
+			if (!ret) {
+				memcg = memcg->over_charge_target;
+				goto out;
+			}
+			mem_cgroup_cancel_charge(page, memcg->over_charge_target);
+		}
+	}
 
 	ret = try_charge(memcg, gfp_mask, nr_pages);
 
