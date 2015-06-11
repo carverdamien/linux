@@ -5528,10 +5528,49 @@ out:
  * charge with memrss_cgroup_commit_charge().  Or abort the transaction
  * with memrss_cgroup_cancel_charge() in case page instantiation fails.
  */
-inline int mem_cgroup_try_charge_anon(struct page *page, struct mm_struct *mm,
+int mem_cgroup_try_charge_anon(struct page *page, struct mm_struct *mm,
 			  gfp_t gfp_mask, struct mem_cgroup **memcgp)
 {
-	return mem_cgroup_try_charge_cache(page,mm,gfp_mask,memcgp);
+	struct mem_cgroup *memcg = NULL;
+	unsigned int nr_pages = 1;
+	int ret = 0;
+
+	if (mem_cgroup_disabled())
+		goto out;
+
+	if (PageSwapCache(page)) {
+		/*
+		 * Every swap fault against a single page tries to charge the
+		 * page, bail as early as possible.  shmem_unuse() encounters
+		 * already charged pages, too.  The USED bit is protected by
+		 * the page lock, which serializes swap cache removal, which
+		 * in turn serializes uncharging.
+		 */
+		if (page->mem_cgroup)
+			goto out;
+	}
+
+	if (PageTransHuge(page)) {
+		nr_pages <<= compound_order(page);
+		VM_BUG_ON_PAGE(!PageTransHuge(page), page);
+	}
+
+	if (do_swap_account && PageSwapCache(page))
+		memcg = try_get_mem_cgroup_from_page(page);
+	if (!memcg)
+		memcg = get_mem_cgroup_from_mm(mm);
+
+	ret = try_charge(memcg, gfp_mask, nr_pages);
+
+	css_put(&memcg->css);
+
+	if (ret == -EINTR) {
+		memcg = root_mem_cgroup;
+		ret = 0;
+	}
+out:
+	*memcgp = memcg;
+	return ret;
 }
 
 /**
