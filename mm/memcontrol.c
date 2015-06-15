@@ -5491,10 +5491,11 @@ bool mem_cgroup_low(struct mem_cgroup *root, struct mem_cgroup *memcg)
  * Heuristic
  */
 static inline bool should_try_over_charge(struct page *page,
+										  unsigned int nr_pages,
 										  struct mem_cgroup *target_memcg,
 										  struct mem_cgroup *memcg)
 {
-	return true;
+	return mem_cgroup_margin(memcg) < nr_pages;
 }
 
 /**
@@ -5547,7 +5548,7 @@ int mem_cgroup_try_charge_cache(struct page *page, struct mm_struct *mm,
 		memcg = get_mem_cgroup_from_mm(mm);
 
 	if (memcg->over_charge_target) {
-		if (should_try_over_charge(page, memcg->over_charge_target, memcg)) {
+		if (should_try_over_charge(page, nr_pages, memcg->over_charge_target, memcg)) {
 			ret = try_over_charge(memcg->over_charge_target, gfp_mask, nr_pages);
 			css_put(&memcg->over_charge_target->css);
 			if (!ret) {
