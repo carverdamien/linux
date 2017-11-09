@@ -86,6 +86,9 @@ struct scan_control {
 	 */
 	struct mem_cgroup *mem_charging;
 
+	unsigned long current_mem_cgroup_hard_priority;
+	unsigned long next_mem_cgroup_hard_priority;
+
 	/* Scan (total_size >> priority) pages at once */
 	int priority;
 
@@ -2416,6 +2419,14 @@ static bool shrink_zone(struct zone *zone, struct scan_control *sc,
 			unsigned long reclaimed;
 			unsigned long scanned;
 
+			/* Protect cgroup with smallest priority */
+			if (memcg->priority.hard < sc->current_mem_cgroup_hard_priority) {
+				/* Find next priority */
+				if (memcg->priority.hard > sc->next_mem_cgroup_hard_priority)
+					sc->next_mem_cgroup_hard_priority = memcg->priority.hard;
+				continue;
+			}
+
 			if (mem_cgroup_low(root, memcg)) {
 				if (!sc->may_thrash)
 					continue;
@@ -2642,6 +2653,22 @@ static bool shrink_zones(struct zonelist *zonelist, struct scan_control *sc)
 	return reclaimable;
 }
 
+/* TODO: store value when user updates priority (i.e. move to memcontrol.c) */
+static unsigned long max_mem_cgroup_hard_priority(struct scan_control *sc)
+{
+	unsigned long max = 0;
+	struct mem_cgroup *iter = NULL;
+
+	/* Find maximum priority */
+	iter = mem_cgroup_iter(sc->target_mem_cgroup, NULL, NULL);
+	do {
+		if (iter->priority.hard > max)
+			max = iter->priority.hard;
+	} while (iter = mem_cgroup_iter(sc->target_mem_cgroup, iter, NULL));
+
+	return max;
+}
+
 /*
  * This is the main entry point to direct page reclaim.
  *
@@ -2665,6 +2692,8 @@ static unsigned long do_try_to_free_pages(struct zonelist *zonelist,
 	unsigned long total_scanned = 0;
 	unsigned long writeback_threshold;
 	bool zones_reclaimable;
+	unsigned long init_mem_cgroup_hard_priority = max_mem_cgroup_hard_priority(sc);
+	sc->current_mem_cgroup_hard_priority = init_mem_cgroup_hard_priority;
 retry:
 	delayacct_freepages_start();
 
@@ -2711,6 +2740,15 @@ retry:
 	if (sc->nr_reclaimed)
 		return sc->nr_reclaimed;
 
+	/* Retry and consider more cgroups by decreasing priority */
+	if (sc->current_mem_cgroup_hard_priority != 0) {
+		WARN_ON(sc->current_mem_cgroup_hard_priority <= sc->next_mem_cgroup_hard_priority);
+		sc->current_mem_cgroup_hard_priority = sc->next_mem_cgroup_hard_priority;
+		sc->next_mem_cgroup_hard_priority = 0;
+		sc->priority = initial_priority;
+		goto retry;
+	}
+
 	/* Aborted reclaim to try compaction? don't OOM, then */
 	if (sc->compaction_ready)
 		return 1;
@@ -2719,6 +2757,7 @@ retry:
 	if (!sc->may_thrash) {
 		sc->priority = initial_priority;
 		sc->may_thrash = 1;
+		sc->current_mem_cgroup_hard_priority = init_mem_cgroup_hard_priority;
 		goto retry;
 	}
 

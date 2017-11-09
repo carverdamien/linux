@@ -165,6 +165,10 @@ enum memcg_kmem_state {
 	KMEM_ONLINE,
 };
 
+struct mem_cgroup_priority {
+	unsigned long hard;
+};
+
 /*
  * The memory controller data structure. The memory controller controls both
  * page cache and RSS per cgroup. We would eventually like to provide
@@ -191,6 +195,8 @@ struct mem_cgroup {
 	struct work_struct high_work;
 
 	unsigned long soft_limit;
+
+	struct mem_cgroup_priority priority;
 
 	/* vmpressure notifications */
 	struct vmpressure vmpressure;
