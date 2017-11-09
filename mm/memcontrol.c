@@ -1981,7 +1981,7 @@ retry:
 
 	mem_cgroup_events(mem_over_limit, MEMCG_MAX, 1);
 
-	nr_reclaimed = try_to_free_mem_cgroup_pages(memcg, mem_over_limit, nr_pages,
+	nr_reclaimed = try_to_free_mem_cgroup_pages(mem_over_limit, memcg, nr_pages,
 						    gfp_mask, may_swap);
 
 	if (mem_cgroup_margin(mem_over_limit) >= nr_pages)
@@ -2818,6 +2818,13 @@ static u64 mem_cgroup_read_u64(struct cgroup_subsys_state *css,
 	}
 }
 
+static u64 mem_cgroup_read_priority_hard(struct cgroup_subsys_state *css,
+					 struct cftype *cft)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
+	return (u64)memcg->priority.hard;
+}
+
 #ifndef CONFIG_SLOB
 static int memcg_online_kmem(struct mem_cgroup *memcg)
 {
@@ -3005,6 +3012,20 @@ static ssize_t mem_cgroup_write(struct kernfs_open_file *of,
 		break;
 	}
 	return ret ?: nbytes;
+}
+
+static ssize_t mem_cgroup_write_priority_hard(struct kernfs_open_file *of,
+				char *buf, size_t nbytes, loff_t off)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(of_css(of));
+	unsigned long hard;
+	char *endptr;
+	buf = strstrip(buf);
+	hard = (unsigned long) simple_strtoull(buf, &endptr, 0);
+	if (*endptr != '\0')
+		return -EINVAL;
+	memcg->priority.hard = hard;
+	return nbytes;
 }
 
 static ssize_t mem_cgroup_reset(struct kernfs_open_file *of, char *buf,
@@ -3929,6 +3950,11 @@ static struct cftype mem_cgroup_legacy_files[] = {
 		.private = MEMFILE_PRIVATE(_MEM, RES_SOFT_LIMIT),
 		.write = mem_cgroup_write,
 		.read_u64 = mem_cgroup_read_u64,
+	},
+	{
+		.name = "priority.hard",
+		.write = mem_cgroup_write_priority_hard,
+		.read_u64 = mem_cgroup_read_priority_hard,
 	},
 	{
 		.name = "failcnt",
