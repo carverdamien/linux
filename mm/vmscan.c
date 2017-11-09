@@ -80,6 +80,11 @@ struct scan_control {
 	 * primary target of this reclaim invocation.
 	 */
 	struct mem_cgroup *target_mem_cgroup;
+	/*
+	 * The memory cgroup that tried to charge memory and as a result
+	 * caused target_mem_cgroup to reach its limit.
+	 */
+	struct mem_cgroup *mem_charging;
 
 	/* Scan (total_size >> priority) pages at once */
 	int priority;
@@ -2423,6 +2428,15 @@ static bool shrink_zone(struct zone *zone, struct scan_control *sc,
 			shrink_zone_memcg(zone, memcg, sc, &lru_pages);
 			zone_lru_pages += lru_pages;
 
+			if (sc->mem_charging && memcg != sc->mem_charging) {
+				mem_cgroup_events(memcg,
+						  MEM_CGROUP_EVENTS_PGLOSS,
+						  sc->nr_reclaimed - reclaimed);
+				mem_cgroup_events(sc->mem_charging,
+						  MEM_CGROUP_EVENTS_PGGAIN,
+						  sc->nr_reclaimed - reclaimed);
+			}
+
 			if (memcg && is_classzone)
 				shrink_slab(sc->gfp_mask, zone_to_nid(zone),
 					    memcg, sc->nr_scanned - scanned,
@@ -2915,6 +2929,7 @@ unsigned long mem_cgroup_shrink_node_zone(struct mem_cgroup *memcg,
 }
 
 unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
+					   struct mem_cgroup *mem_charging,
 					   unsigned long nr_pages,
 					   gfp_t gfp_mask,
 					   bool may_swap)
@@ -2927,6 +2942,7 @@ unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
 		.gfp_mask = (gfp_mask & GFP_RECLAIM_MASK) |
 				(GFP_HIGHUSER_MOVABLE & ~GFP_RECLAIM_MASK),
 		.target_mem_cgroup = memcg,
+		.mem_charging = mem_charging,
 		.priority = DEF_PRIORITY,
 		.may_writepage = !laptop_mode,
 		.may_unmap = 1,

@@ -113,6 +113,8 @@ static const char * const mem_cgroup_events_names[] = {
 	"pgpgout",
 	"pgfault",
 	"pgmajfault",
+	"pgloss",
+	"pggain",
 };
 
 static const char * const mem_cgroup_lru_names[] = {
@@ -1896,7 +1898,7 @@ static void reclaim_high(struct mem_cgroup *memcg,
 		if (page_counter_read(&memcg->memory) <= memcg->high)
 			continue;
 		mem_cgroup_events(memcg, MEMCG_HIGH, 1);
-		try_to_free_mem_cgroup_pages(memcg, nr_pages, gfp_mask, true);
+		try_to_free_mem_cgroup_pages(memcg, memcg, nr_pages, gfp_mask, true);
 	} while ((memcg = parent_mem_cgroup(memcg)));
 }
 
@@ -1979,7 +1981,7 @@ retry:
 
 	mem_cgroup_events(mem_over_limit, MEMCG_MAX, 1);
 
-	nr_reclaimed = try_to_free_mem_cgroup_pages(mem_over_limit, nr_pages,
+	nr_reclaimed = try_to_free_mem_cgroup_pages(memcg, mem_over_limit, nr_pages,
 						    gfp_mask, may_swap);
 
 	if (mem_cgroup_margin(mem_over_limit) >= nr_pages)
@@ -2478,7 +2480,7 @@ static int mem_cgroup_resize_limit(struct mem_cgroup *memcg,
 		if (!ret)
 			break;
 
-		try_to_free_mem_cgroup_pages(memcg, 1, GFP_KERNEL, true);
+		try_to_free_mem_cgroup_pages(memcg, memcg, 1, GFP_KERNEL, true);
 
 		curusage = page_counter_read(&memcg->memory);
 		/* Usage is reduced ? */
@@ -2529,7 +2531,7 @@ static int mem_cgroup_resize_memsw_limit(struct mem_cgroup *memcg,
 		if (!ret)
 			break;
 
-		try_to_free_mem_cgroup_pages(memcg, 1, GFP_KERNEL, false);
+		try_to_free_mem_cgroup_pages(memcg, memcg, 1, GFP_KERNEL, false);
 
 		curusage = page_counter_read(&memcg->memsw);
 		/* Usage is reduced ? */
@@ -2654,7 +2656,7 @@ static int mem_cgroup_force_empty(struct mem_cgroup *memcg)
 		if (signal_pending(current))
 			return -EINTR;
 
-		progress = try_to_free_mem_cgroup_pages(memcg, 1,
+		progress = try_to_free_mem_cgroup_pages(memcg, memcg, 1,
 							GFP_KERNEL, true);
 		if (!progress) {
 			nr_retries--;
@@ -5003,7 +5005,7 @@ static ssize_t memory_high_write(struct kernfs_open_file *of,
 
 	nr_pages = page_counter_read(&memcg->memory);
 	if (nr_pages > high)
-		try_to_free_mem_cgroup_pages(memcg, nr_pages - high,
+		try_to_free_mem_cgroup_pages(memcg, memcg, nr_pages - high,
 					     GFP_KERNEL, true);
 
 	memcg_wb_domain_size_changed(memcg);
@@ -5057,7 +5059,7 @@ static ssize_t memory_max_write(struct kernfs_open_file *of,
 		}
 
 		if (nr_reclaims) {
-			if (!try_to_free_mem_cgroup_pages(memcg, nr_pages - max,
+			if (!try_to_free_mem_cgroup_pages(memcg, memcg, nr_pages - max,
 							  GFP_KERNEL, true))
 				nr_reclaims--;
 			continue;

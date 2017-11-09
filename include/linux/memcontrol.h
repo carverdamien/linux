@@ -70,6 +70,8 @@ enum mem_cgroup_events_index {
 	MEM_CGROUP_EVENTS_PGPGOUT,	/* # of pages paged out */
 	MEM_CGROUP_EVENTS_PGFAULT,	/* # of page-faults */
 	MEM_CGROUP_EVENTS_PGMAJFAULT,	/* # of major page-faults */
+	MEM_CGROUP_EVENTS_PGLOSS,	/* # of pages lost to others */
+	MEM_CGROUP_EVENTS_PGGAIN,	/* # of pages gain from others */
 	MEM_CGROUP_EVENTS_NSTATS,
 	/* default hierarchy events */
 	MEMCG_LOW = MEM_CGROUP_EVENTS_NSTATS,
