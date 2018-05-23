@@ -320,9 +320,17 @@ extern unsigned long try_to_free_pages(struct zonelist *zonelist, int order,
 					gfp_t gfp_mask, nodemask_t *mask);
 extern int __isolate_lru_page(struct page *page, isolate_mode_t mode);
 extern unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
+						  struct mem_cgroup *mem_charging,
 						  unsigned long nr_pages,
 						  gfp_t gfp_mask,
-						  bool may_swap);
+						  bool may_swap,
+						  bool target_mem_cgroup_only);
+extern unsigned long scan_mem_cgroup_pages(struct mem_cgroup *memcg,
+					   struct mem_cgroup *mem_charging,
+					   unsigned long nr_pages,
+					   gfp_t gfp_mask,
+					   bool may_swap,
+					   bool target_mem_cgroup_only);
 extern unsigned long mem_cgroup_shrink_node_zone(struct mem_cgroup *mem,
 						gfp_t gfp_mask, bool noswap,
 						struct zone *zone,

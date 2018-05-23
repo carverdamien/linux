@@ -85,6 +85,8 @@ static bool cgroup_memory_nosocket;
 /* Kernel memory accounting disabled? */
 static bool cgroup_memory_nokmem;
 
+atomic_long_t global_clock;
+
 /* Whether the swap controller is active */
 #ifdef CONFIG_MEMCG_SWAP
 int do_swap_account __read_mostly;
@@ -113,6 +115,13 @@ static const char * const mem_cgroup_events_names[] = {
 	"pgpgout",
 	"pgfault",
 	"pgmajfault",
+	"pglost",
+	"pgstolen",
+};
+
+static const char * const mem_cgroup_clocks_names[] = {
+	"clckD",
+	"clckA",
 };
 
 static const char * const mem_cgroup_lru_names[] = {
@@ -1896,7 +1905,7 @@ static void reclaim_high(struct mem_cgroup *memcg,
 		if (page_counter_read(&memcg->memory) <= memcg->high)
 			continue;
 		mem_cgroup_events(memcg, MEMCG_HIGH, 1);
-		try_to_free_mem_cgroup_pages(memcg, nr_pages, gfp_mask, true);
+		try_to_free_mem_cgroup_pages(memcg, memcg, nr_pages, gfp_mask, true, false);
 	} while ((memcg = parent_mem_cgroup(memcg)));
 }
 
@@ -1926,6 +1935,198 @@ void mem_cgroup_handle_over_high(void)
 	current->memcg_nr_pages_over_high = 0;
 }
 
+/*
+   Object used to sort mem_cgroup in decreasing order of value.
+   The smaller values increases the "protection".
+   TODO:
+   - Embed in mem_cgroup.
+   - Use rb_tree.
+   - Smart delayed updates like mem_cgroup_event_ratelimit.
+*/
+struct reclaim_control {
+	struct mem_cgroup *key;
+	unsigned long value;
+};
+
+#define value_from_soft_limit soft_limit_excess
+/*
+   if soft_limit <= usage,
+   soft_limit_excess returns maximum protection (i.e. 0).
+   if soft_limit is not used it has PAGE_COUNTER_MAX value.
+*/
+
+static unsigned long value_from_activity(struct mem_cgroup *memcg)
+{
+	unsigned long ret = 0;
+	enum mem_cgroup_clocks_index i;
+
+	for(i=0; i<MEM_CGROUP_CLOCKS_NR; i++)
+		if(memcg->activity.use[i])
+			ret = max(ret, memcg->activity.clock[i]);
+
+	if(ret)
+		return ULONG_MAX - ret;
+
+	/* Returns maximum protection if does not want to use clock */
+	return 0;
+}
+
+static unsigned long mem_cgroup_priority(struct mem_cgroup *memcg,
+					unsigned long (*valuefrom)(struct mem_cgroup*))
+{
+	struct mem_cgroup *root = NULL;
+	struct mem_cgroup *iter = memcg;
+	unsigned long priority = 0;
+	unsigned long value;
+
+	if (mem_cgroup_is_root(memcg))
+		return 0;
+
+	/* Find the highest ancestor that use_hierarchy */
+	while (iter && iter->use_hierarchy) {
+		root = iter;
+		iter = parent_mem_cgroup(iter);
+	}
+
+	if(!root)
+		return 0;
+
+	value = (*valuefrom)(memcg);
+
+	if (value)
+		for_each_mem_cgroup_tree(iter, root)
+			if (iter != memcg && (*valuefrom)(iter) < value)
+				priority++;
+
+	return priority;
+}
+
+static int compare_rc(const void *_a, const void *_b)
+{
+	const struct reclaim_control *a = _a;
+	const struct reclaim_control *b = _b;
+
+	unsigned long a_value = a->value;
+	unsigned long b_value = b->value;
+
+	if (b_value < a_value)
+		return -1;
+
+	if (b_value > a_value)
+		return 1;
+
+	return 0;
+}
+
+static unsigned int rc_init(struct reclaim_control *rc,
+			    const unsigned int _nr_rc,
+			    unsigned long (*valuefrom)(struct mem_cgroup*),
+			    struct mem_cgroup *mem_over_limit)
+{
+	struct mem_cgroup *iter = NULL;
+	unsigned int nr_rc = 0;
+
+	memset(rc, 0, _nr_rc * sizeof(struct reclaim_control));
+
+	for_each_mem_cgroup_tree(iter, mem_over_limit) {
+		if (unlikely(nr_rc >= _nr_rc)) {
+			WARN_ON(nr_rc >= _nr_rc);
+			nr_rc = 0;
+			break;
+		} else {
+			unsigned long value = (*valuefrom)(iter);
+			if(value) {
+				rc[nr_rc].key = iter;
+				rc[nr_rc].value = value;
+				nr_rc++;
+			}
+		}
+	}
+
+	sort(rc, nr_rc, sizeof(struct reclaim_control),
+	     compare_rc, NULL);
+
+	return nr_rc;
+}
+
+static unsigned long do_reclaim_policy(unsigned long total_nr_reclaimed,
+				       const struct reclaim_control *rc,
+				       const unsigned int nr_rc,
+				       struct mem_cgroup *mem_charging,
+				       const unsigned long total_nr_to_reclaim,
+				       const gfp_t gfp_mask,
+				       const bool may_swap)
+{
+	unsigned int i = 0;
+	/* reclaim memory to specific mem_cgroups */
+	for(i=0; i<nr_rc && total_nr_reclaimed < total_nr_to_reclaim; i++) {
+		unsigned long nr_to_reclaim;
+		unsigned long progress;
+
+		do {
+			nr_to_reclaim = total_nr_to_reclaim - total_nr_reclaimed;
+			progress = try_to_free_mem_cgroup_pages(rc[i].key,
+								mem_charging,
+								nr_to_reclaim,
+								gfp_mask, may_swap, true);
+			total_nr_reclaimed += progress;
+		} while (progress && total_nr_reclaimed < total_nr_to_reclaim);
+	}
+	return total_nr_reclaimed;
+}
+
+static unsigned long reclaim_policy(struct mem_cgroup *mem_charging,
+				    struct mem_cgroup *mem_over_limit,
+				    const unsigned long total_nr_to_reclaim,
+				    const gfp_t gfp_mask,
+				    const bool may_swap)
+{
+	unsigned long total_nr_reclaimed = 0;
+	struct reclaim_control *rc = NULL;
+	unsigned int _nr_rc = 0;
+	unsigned int i;
+	unsigned long (*func[])(struct mem_cgroup*) =
+		{value_from_soft_limit, value_from_activity};
+
+	if (mem_cgroup_is_root(mem_over_limit) || mem_cgroup_is_root(mem_charging))
+		goto out;
+	if (!mem_over_limit->use_hierarchy)
+		goto out;
+	_nr_rc = mem_cgroup_count_children(mem_over_limit);
+	if (_nr_rc <= 1)
+		goto out;
+
+	rc = kmalloc(_nr_rc * sizeof(struct reclaim_control), gfp_mask);
+	if(rc == NULL)
+		goto out;
+
+	for(i=0; i<2 && total_nr_reclaimed < total_nr_to_reclaim; i++) {
+		unsigned int nr_rc = rc_init(rc,
+					     _nr_rc,
+					     func[i],
+					     mem_over_limit);
+		total_nr_reclaimed += do_reclaim_policy(total_nr_reclaimed,
+							rc,
+							nr_rc,
+							mem_charging,
+							total_nr_to_reclaim,
+							gfp_mask,
+							may_swap);
+	}
+
+	kfree(rc);
+out:
+	if (total_nr_reclaimed < total_nr_to_reclaim)
+		/* reclaim memory to the whole mem_cgroup heirarchy */
+		/* TODO: fail counter? */
+		total_nr_reclaimed +=
+			try_to_free_mem_cgroup_pages(mem_over_limit,
+						     mem_charging,
+						     total_nr_to_reclaim - total_nr_reclaimed,
+						     gfp_mask, may_swap, false);
+	return total_nr_reclaimed;
+}
+
 static int try_charge(struct mem_cgroup *memcg, gfp_t gfp_mask,
 		      unsigned int nr_pages)
 {
@@ -1936,6 +2137,8 @@ static int try_charge(struct mem_cgroup *memcg, gfp_t gfp_mask,
 	unsigned long nr_reclaimed;
 	bool may_swap = true;
 	bool drained = false;
+
+	mem_cgroup_clock(memcg, MEM_CGROUP_CLOCKS_DEMAND);
 
 	if (mem_cgroup_is_root(memcg))
 		return 0;
@@ -1979,8 +2182,8 @@ retry:
 
 	mem_cgroup_events(mem_over_limit, MEMCG_MAX, 1);
 
-	nr_reclaimed = try_to_free_mem_cgroup_pages(mem_over_limit, nr_pages,
-						    gfp_mask, may_swap);
+	nr_reclaimed = reclaim_policy(memcg, mem_over_limit, nr_pages,
+				      gfp_mask, may_swap);
 
 	if (mem_cgroup_margin(mem_over_limit) >= nr_pages)
 		goto retry;
@@ -2478,7 +2681,7 @@ static int mem_cgroup_resize_limit(struct mem_cgroup *memcg,
 		if (!ret)
 			break;
 
-		try_to_free_mem_cgroup_pages(memcg, 1, GFP_KERNEL, true);
+		try_to_free_mem_cgroup_pages(memcg, memcg, 1, GFP_KERNEL, true, false);
 
 		curusage = page_counter_read(&memcg->memory);
 		/* Usage is reduced ? */
@@ -2529,7 +2732,7 @@ static int mem_cgroup_resize_memsw_limit(struct mem_cgroup *memcg,
 		if (!ret)
 			break;
 
-		try_to_free_mem_cgroup_pages(memcg, 1, GFP_KERNEL, false);
+		try_to_free_mem_cgroup_pages(memcg, memcg, 1, GFP_KERNEL, false, false);
 
 		curusage = page_counter_read(&memcg->memsw);
 		/* Usage is reduced ? */
@@ -2654,8 +2857,8 @@ static int mem_cgroup_force_empty(struct mem_cgroup *memcg)
 		if (signal_pending(current))
 			return -EINTR;
 
-		progress = try_to_free_mem_cgroup_pages(memcg, 1,
-							GFP_KERNEL, true);
+		progress = try_to_free_mem_cgroup_pages(memcg, memcg, 1,
+							GFP_KERNEL, true, false);
 		if (!progress) {
 			nr_retries--;
 			/* maybe some writeback is necessary */
@@ -2712,6 +2915,57 @@ static int mem_cgroup_hierarchy_write(struct cgroup_subsys_state *css,
 		retval = -EINVAL;
 
 	return retval;
+}
+
+
+/* 
+   TODO: make more generic read/write.
+   Example:
+   $ cat memory.clock
+   demand 0
+   activate 0
+   $ echo {demand,activate} > memory.clock
+   $ cat memory.clock
+   demand 1
+   activate 1
+*/
+
+static u64 mem_cgroup_use_clock_demand_read(struct cgroup_subsys_state *css,
+					    struct cftype *cft)
+{
+	return mem_cgroup_from_css(css)->activity.use[MEM_CGROUP_CLOCKS_DEMAND];
+}
+
+static u64 mem_cgroup_use_clock_activate_read(struct cgroup_subsys_state *css,
+					      struct cftype *cft)
+{
+	return mem_cgroup_from_css(css)->activity.use[MEM_CGROUP_CLOCKS_ACTIVATE];
+}
+
+static int mem_cgroup_use_clock_demand_write(struct cgroup_subsys_state *css,
+					     struct cftype *cft, u64 val)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
+
+	if (val == 0 || val == 1)
+		memcg->activity.use[MEM_CGROUP_CLOCKS_DEMAND] = val;
+	else
+		return -EINVAL;
+
+	return 0;
+}
+
+static int mem_cgroup_use_clock_activate_write(struct cgroup_subsys_state *css,
+					       struct cftype *cft, u64 val)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
+
+	if (val == 0 || val == 1)
+		memcg->activity.use[MEM_CGROUP_CLOCKS_ACTIVATE] = val;
+	else
+		return -EINVAL;
+
+	return 0;
 }
 
 static void tree_stat(struct mem_cgroup *memcg, unsigned long *stat)
@@ -3005,6 +3259,21 @@ static ssize_t mem_cgroup_write(struct kernfs_open_file *of,
 	return ret ?: nbytes;
 }
 
+static ssize_t mem_cgroup_force_scan_write(struct kernfs_open_file *of, char *buf,
+				size_t nbytes, loff_t off)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(of_css(of));
+	unsigned long nr_pages;
+	int ret;
+
+	buf = strstrip(buf);
+	ret = page_counter_memparse(buf, "-1", &nr_pages);
+	if(ret)
+		return ret;
+	scan_mem_cgroup_pages(memcg, NULL, nr_pages, GFP_KERNEL, true, true);
+	return nbytes;
+}
+
 static ssize_t mem_cgroup_reset(struct kernfs_open_file *of, char *buf,
 				size_t nbytes, loff_t off)
 {
@@ -3216,7 +3485,13 @@ static int memcg_stat_show(struct seq_file *m, void *v)
 		seq_printf(m, "recent_scanned_file %lu\n", recent_scanned[1]);
 	}
 #endif
-
+	seq_printf(m, "soft_priority %lu\n", mem_cgroup_priority(memcg,value_from_soft_limit));
+	seq_printf(m, "clck_priority %lu\n", mem_cgroup_priority(memcg,value_from_activity));
+	seq_printf(m, "soft_excess %lu\n", soft_limit_excess(memcg));
+	for(i=0; i<MEM_CGROUP_CLOCKS_NR; i++)
+		seq_printf(m, "%s %lu\n",
+			   mem_cgroup_clocks_names[i],
+			   memcg->activity.clock[i]);
 	return 0;
 }
 
@@ -3943,9 +4218,23 @@ static struct cftype mem_cgroup_legacy_files[] = {
 		.write = mem_cgroup_force_empty_write,
 	},
 	{
+		.name = "force_scan",
+		.write = mem_cgroup_force_scan_write,
+	},
+	{
 		.name = "use_hierarchy",
 		.write_u64 = mem_cgroup_hierarchy_write,
 		.read_u64 = mem_cgroup_hierarchy_read,
+	},
+	{
+		.name = "use_clock_demand",
+		.write_u64 = mem_cgroup_use_clock_demand_write,
+		.read_u64 = mem_cgroup_use_clock_demand_read,
+	},
+	{
+		.name = "use_clock_activate",
+		.write_u64 = mem_cgroup_use_clock_activate_write,
+		.read_u64 = mem_cgroup_use_clock_activate_read,
 	},
 	{
 		.name = "cgroup.event_control",		/* XXX: for compat */
@@ -5003,8 +5292,8 @@ static ssize_t memory_high_write(struct kernfs_open_file *of,
 
 	nr_pages = page_counter_read(&memcg->memory);
 	if (nr_pages > high)
-		try_to_free_mem_cgroup_pages(memcg, nr_pages - high,
-					     GFP_KERNEL, true);
+		try_to_free_mem_cgroup_pages(memcg, memcg, nr_pages - high,
+					     GFP_KERNEL, true, false);
 
 	memcg_wb_domain_size_changed(memcg);
 	return nbytes;
@@ -5057,8 +5346,8 @@ static ssize_t memory_max_write(struct kernfs_open_file *of,
 		}
 
 		if (nr_reclaims) {
-			if (!try_to_free_mem_cgroup_pages(memcg, nr_pages - max,
-							  GFP_KERNEL, true))
+			if (!try_to_free_mem_cgroup_pages(memcg, memcg, nr_pages - max,
+							  GFP_KERNEL, true, false))
 				nr_reclaims--;
 			continue;
 		}

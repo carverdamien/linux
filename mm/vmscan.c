@@ -80,6 +80,11 @@ struct scan_control {
 	 * primary target of this reclaim invocation.
 	 */
 	struct mem_cgroup *target_mem_cgroup;
+	/*
+	 * The memory cgroup that tried to charge memory and as a result
+	 * caused target_mem_cgroup to reach its limit.
+	 */
+	struct mem_cgroup *mem_charging;
 
 	/* Scan (total_size >> priority) pages at once */
 	int priority;
@@ -94,6 +99,12 @@ struct scan_control {
 
 	/* Can cgroups be reclaimed below their normal consumption range? */
 	unsigned int may_thrash:1;
+
+	/* Pages are not reclaimed but move in the lists as if they were */
+	unsigned int scan_only:1;
+
+	/* Prevent other cgroups from beeing reclaimed */
+	unsigned int target_mem_cgroup_only:1;
 
 	unsigned int hibernation_mode:1;
 
@@ -896,6 +907,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 	unsigned long nr_reclaimed = 0;
 	unsigned long nr_writeback = 0;
 	unsigned long nr_immediate = 0;
+	struct mem_cgroup *mem_cgroup = NULL;
 
 	cond_resched();
 
@@ -915,6 +927,8 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 
 		if (!trylock_page(page))
 			goto keep;
+
+		mem_cgroup = page->mem_cgroup;
 
 		VM_BUG_ON_PAGE(PageActive(page), page);
 		VM_BUG_ON_PAGE(page_zone(page) != zone, page);
@@ -1038,7 +1052,13 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			goto keep_locked;
 		case PAGEREF_RECLAIM:
 		case PAGEREF_RECLAIM_CLEAN:
-			; /* try to reclaim the page below */
+			if (sc->scan_only) {
+				/* This page could have been reclaimed 
+				   but we do not reclaim in this mode */
+				nr_reclaimed++;
+				goto keep_locked;
+			}
+			/* try to reclaim the page below */
 		}
 
 		/*
@@ -1231,6 +1251,11 @@ keep:
 
 	list_splice(&ret_pages, page_list);
 	count_vm_events(PGACTIVATE, pgactivate);
+
+	/* Batches multiple clock increments */
+	/* NOTE: Unbatch if necessary */
+	if (pgactivate)
+		mem_cgroup_clock(mem_cgroup, MEM_CGROUP_CLOCKS_ACTIVATE);
 
 	*ret_nr_dirty += nr_dirty;
 	*ret_nr_congested += nr_congested;
@@ -2411,6 +2436,9 @@ static bool shrink_zone(struct zone *zone, struct scan_control *sc,
 			unsigned long reclaimed;
 			unsigned long scanned;
 
+			if (sc->target_mem_cgroup_only && memcg != sc->target_mem_cgroup)
+			  continue;
+
 			if (mem_cgroup_low(root, memcg)) {
 				if (!sc->may_thrash)
 					continue;
@@ -2422,6 +2450,10 @@ static bool shrink_zone(struct zone *zone, struct scan_control *sc,
 
 			shrink_zone_memcg(zone, memcg, sc, &lru_pages);
 			zone_lru_pages += lru_pages;
+
+			mem_cgroup_sibling_pressure(memcg,
+						    sc->mem_charging,
+						    sc->nr_reclaimed - reclaimed);
 
 			if (memcg && is_classzone)
 				shrink_slab(sc->gfp_mask, zone_to_nid(zone),
@@ -2914,10 +2946,13 @@ unsigned long mem_cgroup_shrink_node_zone(struct mem_cgroup *memcg,
 	return sc.nr_reclaimed;
 }
 
-unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
-					   unsigned long nr_pages,
-					   gfp_t gfp_mask,
-					   bool may_swap)
+static unsigned long do_try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
+						     struct mem_cgroup *mem_charging,
+						     unsigned long nr_pages,
+						     gfp_t gfp_mask,
+						     bool may_swap,
+						     bool target_mem_cgroup_only,
+						     bool scan_only)
 {
 	struct zonelist *zonelist;
 	unsigned long nr_reclaimed;
@@ -2927,10 +2962,13 @@ unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
 		.gfp_mask = (gfp_mask & GFP_RECLAIM_MASK) |
 				(GFP_HIGHUSER_MOVABLE & ~GFP_RECLAIM_MASK),
 		.target_mem_cgroup = memcg,
+		.mem_charging = mem_charging,
 		.priority = DEF_PRIORITY,
 		.may_writepage = !laptop_mode,
 		.may_unmap = 1,
 		.may_swap = may_swap,
+		.target_mem_cgroup_only = target_mem_cgroup_only,
+		.scan_only = scan_only,
 	};
 
 	/*
@@ -2951,6 +2989,38 @@ unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
 	trace_mm_vmscan_memcg_reclaim_end(nr_reclaimed);
 
 	return nr_reclaimed;
+}
+
+unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
+					   struct mem_cgroup *mem_charging,
+					   unsigned long nr_pages,
+					   gfp_t gfp_mask,
+					   bool may_swap,
+					   bool target_mem_cgroup_only)
+{
+	return do_try_to_free_mem_cgroup_pages(memcg,
+					       mem_charging,
+					       nr_pages,
+					       gfp_mask,
+					       may_swap,
+					       target_mem_cgroup_only,
+					       false);
+}
+
+unsigned long scan_mem_cgroup_pages(struct mem_cgroup *memcg,
+				    struct mem_cgroup *mem_charging,
+				    unsigned long nr_pages,
+				    gfp_t gfp_mask,
+				    bool may_swap,
+				    bool target_mem_cgroup_only)
+{
+	return do_try_to_free_mem_cgroup_pages(memcg,
+					       mem_charging,
+					       nr_pages,
+					       gfp_mask,
+					       may_swap,
+					       target_mem_cgroup_only,
+					       true);
 }
 #endif
 
