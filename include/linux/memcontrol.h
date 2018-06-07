@@ -70,6 +70,9 @@ enum mem_cgroup_events_index {
 	MEM_CGROUP_EVENTS_PGPGOUT,	/* # of pages paged out */
 	MEM_CGROUP_EVENTS_PGFAULT,	/* # of page-faults */
 	MEM_CGROUP_EVENTS_PGMAJFAULT,	/* # of major page-faults */
+	MEM_CGROUP_EVENTS_PGLOST,	/* # of pages others reclaimed to self */
+	MEM_CGROUP_EVENTS_PGSTOLEN,	/* # of pages reclaimed to others */
+	MEM_CGROUP_EVENTS_PGSELF,       /* # of pages reclaimed to self to protect others */
 	MEM_CGROUP_EVENTS_NSTATS,
 	/* default hierarchy events */
 	MEMCG_LOW = MEM_CGROUP_EVENTS_NSTATS,
@@ -291,6 +294,26 @@ static inline void mem_cgroup_events(struct mem_cgroup *memcg,
 	this_cpu_add(memcg->stat->events[idx], nr);
 	cgroup_file_notify(&memcg->events_file);
 }
+
+static inline void mem_cgroup_sibling_pressure(struct mem_cgroup *f,
+					       struct mem_cgroup *t,
+					       struct mem_cgroup *r,
+					       unsigned int nr)
+{
+	if (f && t) {
+		if (f != t) {
+			mem_cgroup_events(f,MEM_CGROUP_EVENTS_PGLOST,nr);
+			mem_cgroup_events(t,MEM_CGROUP_EVENTS_PGSTOLEN,nr);
+		} else {
+			if (r!=f) {
+				mem_cgroup_events(f,MEM_CGROUP_EVENTS_PGSELF,nr);
+			}
+		}
+	}
+}
+
+unsigned long mem_cgroup_weight(struct mem_cgroup*, struct zone*);
+unsigned long mem_cgroup_total_weight(struct mem_cgroup*, struct zone*);
 
 bool mem_cgroup_low(struct mem_cgroup *root, struct mem_cgroup *memcg);
 
@@ -551,6 +574,23 @@ static inline void mem_cgroup_events(struct mem_cgroup *memcg,
 				     enum mem_cgroup_events_index idx,
 				     unsigned int nr)
 {
+}
+
+static inline void mem_cgroup_sibling_pressure(struct mem_cgroup *f,
+					       struct mem_cgroup *t,
+					       struct mem_cgroup *r,
+					       unsigned int nr)
+{
+}
+
+static inline unsigned long mem_cgroup_weight(struct mem_cgroup*, struct zone*)
+{
+	return 1;
+}
+
+static inline unsigned long mem_cgroup_total_weight(struct mem_cgroup*, struct zone*)
+{
+	return 1;
 }
 
 static inline bool mem_cgroup_low(struct mem_cgroup *root,

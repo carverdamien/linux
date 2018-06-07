@@ -80,6 +80,11 @@ struct scan_control {
 	 * primary target of this reclaim invocation.
 	 */
 	struct mem_cgroup *target_mem_cgroup;
+	/*
+	 * The memory cgroup that tried to charge memory and as a result
+	 * caused target_mem_cgroup to reach its limit.
+	 */
+	struct mem_cgroup *mem_charging;
 
 	/* Scan (total_size >> priority) pages at once */
 	int priority;
@@ -1967,7 +1972,9 @@ enum scan_balance {
  */
 static void get_scan_count(struct lruvec *lruvec, struct mem_cgroup *memcg,
 			   struct scan_control *sc, unsigned long *nr,
-			   unsigned long *lru_pages)
+			   unsigned long *lru_pages,
+			   unsigned long extra_numerator,
+			   unsigned long extra_denominator)
 {
 	int swappiness = mem_cgroup_swappiness(memcg);
 	struct zone_reclaim_stat *reclaim_stat = &lruvec->reclaim_stat;
@@ -2161,6 +2168,11 @@ out:
 				BUG();
 			}
 
+			if (scan_balance != SCAN_EQUAL) {
+				scan = div64_u64(scan * extra_numerator, extra_denominator);
+				scan = max(scan, SWAP_CLUSTER_MAX);
+			}
+
 			*lru_pages += size;
 			nr[lru] = scan;
 
@@ -2194,7 +2206,8 @@ static inline void init_tlb_ubc(void)
  * This is a basic per-zone page freer.  Used by both kswapd and direct reclaim.
  */
 static void shrink_zone_memcg(struct zone *zone, struct mem_cgroup *memcg,
-			      struct scan_control *sc, unsigned long *lru_pages)
+			      struct scan_control *sc, unsigned long *lru_pages,
+			      unsigned long numerator, unsigned long denominator)
 {
 	struct lruvec *lruvec = mem_cgroup_zone_lruvec(zone, memcg);
 	unsigned long nr[NR_LRU_LISTS];
@@ -2206,7 +2219,7 @@ static void shrink_zone_memcg(struct zone *zone, struct mem_cgroup *memcg,
 	struct blk_plug plug;
 	bool scan_adjusted;
 
-	get_scan_count(lruvec, memcg, sc, nr, lru_pages);
+	get_scan_count(lruvec, memcg, sc, nr, lru_pages, numerator, denominator);
 
 	/* Record the original scan target for proportional adjustments later */
 	memcpy(targets, nr, sizeof(nr));
@@ -2391,6 +2404,7 @@ static bool shrink_zone(struct zone *zone, struct scan_control *sc,
 {
 	struct reclaim_state *reclaim_state = current->reclaim_state;
 	unsigned long nr_reclaimed, nr_scanned;
+	unsigned long numerator, denominator;
 	bool reclaimable = false;
 
 	do {
@@ -2404,6 +2418,8 @@ static bool shrink_zone(struct zone *zone, struct scan_control *sc,
 
 		nr_reclaimed = sc->nr_reclaimed;
 		nr_scanned = sc->nr_scanned;
+
+		denominator = mem_cgroup_total_weight(root,zone);
 
 		memcg = mem_cgroup_iter(root, NULL, &reclaim);
 		do {
@@ -2420,8 +2436,15 @@ static bool shrink_zone(struct zone *zone, struct scan_control *sc,
 			reclaimed = sc->nr_reclaimed;
 			scanned = sc->nr_scanned;
 
-			shrink_zone_memcg(zone, memcg, sc, &lru_pages);
+			numerator = mem_cgroup_weight(memcg,zone);
+
+			shrink_zone_memcg(zone, memcg, sc, &lru_pages, numerator, denominator);
 			zone_lru_pages += lru_pages;
+
+			mem_cgroup_sibling_pressure(memcg,
+						    sc->mem_charging,
+						    sc->target_mem_cgroup,
+						    sc->nr_reclaimed - reclaimed);
 
 			if (memcg && is_classzone)
 				shrink_slab(sc->gfp_mask, zone_to_nid(zone),
@@ -2433,21 +2456,6 @@ static bool shrink_zone(struct zone *zone, struct scan_control *sc,
 				   sc->nr_scanned - scanned,
 				   sc->nr_reclaimed - reclaimed);
 
-			/*
-			 * Direct reclaim and kswapd have to scan all memory
-			 * cgroups to fulfill the overall scan target for the
-			 * zone.
-			 *
-			 * Limit reclaim, on the other hand, only cares about
-			 * nr_to_reclaim pages to be reclaimed and it will
-			 * retry with decreasing priority if one round over the
-			 * whole hierarchy is not sufficient.
-			 */
-			if (!global_reclaim(sc) &&
-					sc->nr_reclaimed >= sc->nr_to_reclaim) {
-				mem_cgroup_iter_break(root, memcg);
-				break;
-			}
 		} while ((memcg = mem_cgroup_iter(root, memcg, &reclaim)));
 
 		/*
@@ -2906,7 +2914,7 @@ unsigned long mem_cgroup_shrink_node_zone(struct mem_cgroup *memcg,
 	 * will pick up pages from other mem cgroup's as well. We hack
 	 * the priority and make it zero.
 	 */
-	shrink_zone_memcg(zone, memcg, &sc, &lru_pages);
+	shrink_zone_memcg(zone, memcg, &sc, &lru_pages, 1, 1);
 
 	trace_mm_vmscan_memcg_softlimit_reclaim_end(sc.nr_reclaimed);
 
@@ -2915,6 +2923,7 @@ unsigned long mem_cgroup_shrink_node_zone(struct mem_cgroup *memcg,
 }
 
 unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
+					   struct mem_cgroup *mem_charging,
 					   unsigned long nr_pages,
 					   gfp_t gfp_mask,
 					   bool may_swap)
@@ -2927,6 +2936,7 @@ unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
 		.gfp_mask = (gfp_mask & GFP_RECLAIM_MASK) |
 				(GFP_HIGHUSER_MOVABLE & ~GFP_RECLAIM_MASK),
 		.target_mem_cgroup = memcg,
+		.mem_charging = mem_charging,
 		.priority = DEF_PRIORITY,
 		.may_writepage = !laptop_mode,
 		.may_unmap = 1,
