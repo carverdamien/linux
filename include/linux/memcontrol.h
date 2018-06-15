@@ -209,6 +209,8 @@ struct mem_cgroup {
 
 	struct activity_tracker activity;
 
+	unsigned long reclaim_order;
+
 	/*
 	 * Should the accounting and control be hierarchical, per subtree?
 	 */

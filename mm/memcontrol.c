@@ -1948,6 +1948,11 @@ struct reclaim_control {
 	unsigned long value;
 };
 
+static unsigned long value_from_reclaim_order(struct mem_cgroup *memcg)
+{
+	return memcg->reclaim_order;
+}
+
 #define value_from_soft_limit soft_limit_excess
 /*
    if soft_limit <= usage,
@@ -2086,7 +2091,7 @@ static unsigned long reclaim_policy(struct mem_cgroup *mem_charging,
 	unsigned int _nr_rc = 0;
 	unsigned int i;
 	unsigned long (*func[])(struct mem_cgroup*) =
-		{value_from_soft_limit, value_from_activity};
+		{value_from_reclaim_order, value_from_soft_limit, value_from_activity};
 
 	if (mem_cgroup_is_root(mem_over_limit) || mem_cgroup_is_root(mem_charging))
 		goto out;
@@ -2100,7 +2105,7 @@ static unsigned long reclaim_policy(struct mem_cgroup *mem_charging,
 	if(rc == NULL)
 		goto out;
 
-	for(i=0; i<2 && total_nr_reclaimed < total_nr_to_reclaim; i++) {
+	for(i=0; i<3 && total_nr_reclaimed < total_nr_to_reclaim; i++) {
 		unsigned int nr_rc = rc_init(rc,
 					     _nr_rc,
 					     func[i],
@@ -2968,6 +2973,16 @@ static int mem_cgroup_use_clock_activate_write(struct cgroup_subsys_state *css,
 	return 0;
 }
 
+static int mem_cgroup_reclaim_order_write(struct cgroup_subsys_state *css,
+					  struct cftype *cft, u64 val)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
+
+	memcg->reclaim_order = val;
+
+	return 0;
+}
+
 static void tree_stat(struct mem_cgroup *memcg, unsigned long *stat)
 {
 	struct mem_cgroup *iter;
@@ -3485,6 +3500,7 @@ static int memcg_stat_show(struct seq_file *m, void *v)
 		seq_printf(m, "recent_scanned_file %lu\n", recent_scanned[1]);
 	}
 #endif
+	seq_printf(m, "reclaim_order %lu\n", mem_cgroup_priority(memcg,value_from_reclaim_order));
 	seq_printf(m, "soft_priority %lu\n", mem_cgroup_priority(memcg,value_from_soft_limit));
 	seq_printf(m, "clck_priority %lu\n", mem_cgroup_priority(memcg,value_from_activity));
 	seq_printf(m, "soft_excess %lu\n", soft_limit_excess(memcg));
@@ -4235,6 +4251,10 @@ static struct cftype mem_cgroup_legacy_files[] = {
 		.name = "use_clock_activate",
 		.write_u64 = mem_cgroup_use_clock_activate_write,
 		.read_u64 = mem_cgroup_use_clock_activate_read,
+	},
+	{
+		.name = "reclaim_order",
+		.write_u64 = mem_cgroup_reclaim_order_write,
 	},
 	{
 		.name = "cgroup.event_control",		/* XXX: for compat */
