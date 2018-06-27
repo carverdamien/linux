@@ -2027,6 +2027,12 @@ static void get_scan_count(struct lruvec *lruvec, struct mem_cgroup *memcg,
 	if (!global_reclaim(sc))
 		force_scan = true;
 
+	if(sc->scan_only) {
+		force_scan = true;
+		scan_balance = SCAN_EQUAL;
+		goto out;
+	}
+
 	/* If we have no swap space, do not bother scanning anon pages. */
 	if (!sc->may_swap || mem_cgroup_get_nr_swap_pages(memcg) <= 0) {
 		scan_balance = SCAN_FILE;
