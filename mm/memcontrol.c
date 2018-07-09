@@ -612,7 +612,7 @@ static void mem_cgroup_clock(struct mem_cgroup *memcg)
 		memcg->activity.clock[MEM_CGROUP_CLOCKS_DEMAND] =
 			atomic_long_inc_return(&global_clock);
 		memcg->activity.clock[MEM_CGROUP_CLOCKS_ACTIVATE] =
-			mem_cgroup_read_stat(memcg, MEM_CGROUP_EVENTS_PGACTIVATE);
+			mem_cgroup_read_events(memcg, MEM_CGROUP_EVENTS_PGACTIVATE);
 	}
 }
 
@@ -1991,7 +1991,7 @@ static unsigned long protection_from_activity(struct mem_cgroup *memcg)
 	if (memcg->activity.use[MEM_CGROUP_CLOCKS_DEMAND])
 		if (memcg->activity.use[MEM_CGROUP_CLOCKS_ACTIVATE]) {
 			unsigned long pgactivated =
-				mem_cgroup_read_stat(memcg, MEM_CGROUP_EVENTS_PGACTIVATE);
+				mem_cgroup_read_events(memcg, MEM_CGROUP_EVENTS_PGACTIVATE);
 			ret = pgactivated - memcg->activity.clock[MEM_CGROUP_CLOCKS_ACTIVATE];
 			memcg->activity.clock[MEM_CGROUP_CLOCKS_ACTIVATE] = pgactivated;
 		}
