@@ -606,8 +606,7 @@ mem_cgroup_read_stat(struct mem_cgroup *memcg, enum mem_cgroup_stat_index idx)
 	return val;
 }
 
-static void mem_cgroup_clock(struct mem_cgroup *memcg,
-				    enum mem_cgroup_clocks_index idx)
+static void mem_cgroup_clock(struct mem_cgroup *memcg)
 {
 	if (memcg) {
 		memcg->activity.clock[MEM_CGROUP_CLOCKS_DEMAND] =
@@ -1975,7 +1974,6 @@ static unsigned long value_from_reclaim_order(struct mem_cgroup *memcg)
 static unsigned long value_from_activity(struct mem_cgroup *memcg)
 {
 	unsigned long ret = 0;
-	enum mem_cgroup_clocks_index i;
 
 	if (memcg->activity.use[MEM_CGROUP_CLOCKS_DEMAND])
 		ret = memcg->activity.clock[MEM_CGROUP_CLOCKS_DEMAND];
