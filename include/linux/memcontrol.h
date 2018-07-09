@@ -66,6 +66,12 @@ struct mem_cgroup_reclaim_cookie {
 	unsigned int generation;
 };
 
+enum mem_cgroup_clocks_index {
+	MEM_CGROUP_CLOCKS_DEMAND,    /* Age of last page demand */
+	MEM_CGROUP_CLOCKS_ACTIVATE,  /* pgactivated value at time of last page demand */
+	MEM_CGROUP_CLOCKS_NR,
+};
+
 struct activity_tracker {
 	unsigned long clock[MEM_CGROUP_CLOCKS_NR];
 	bool use[MEM_CGROUP_CLOCKS_NR];

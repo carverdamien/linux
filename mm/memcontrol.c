@@ -87,12 +87,6 @@ static bool cgroup_memory_nokmem;
 
 atomic_long_t global_clock;
 
-enum mem_cgroup_clocks_index {
-	MEM_CGROUP_CLOCKS_DEMAND,    /* Age of last page demand */
-	MEM_CGROUP_CLOCKS_ACTIVATE,  /* pgactivated value at time of last page demand */
-	MEM_CGROUP_CLOCKS_NR,
-};
-
 /* Whether the swap controller is active */
 #ifdef CONFIG_MEMCG_SWAP
 int do_swap_account __read_mostly;
