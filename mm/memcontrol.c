@@ -606,16 +606,6 @@ mem_cgroup_read_stat(struct mem_cgroup *memcg, enum mem_cgroup_stat_index idx)
 	return val;
 }
 
-static void mem_cgroup_clock(struct mem_cgroup *memcg)
-{
-	if (memcg) {
-		memcg->activity.clock[MEM_CGROUP_CLOCKS_DEMAND] =
-			atomic_long_inc_return(&global_clock);
-		memcg->activity.clock[MEM_CGROUP_CLOCKS_ACTIVATE] =
-			mem_cgroup_read_events(memcg, MEM_CGROUP_EVENTS_PGACTIVATE);
-	}
-}
-
 static unsigned long mem_cgroup_read_events(struct mem_cgroup *memcg,
 					    enum mem_cgroup_events_index idx)
 {
@@ -625,6 +615,16 @@ static unsigned long mem_cgroup_read_events(struct mem_cgroup *memcg,
 	for_each_possible_cpu(cpu)
 		val += per_cpu(memcg->stat->events[idx], cpu);
 	return val;
+}
+
+static void mem_cgroup_clock(struct mem_cgroup *memcg)
+{
+	if (memcg) {
+		memcg->activity.clock[MEM_CGROUP_CLOCKS_DEMAND] =
+			atomic_long_inc_return(&global_clock);
+		memcg->activity.clock[MEM_CGROUP_CLOCKS_ACTIVATE] =
+			mem_cgroup_read_events(memcg, MEM_CGROUP_EVENTS_PGACTIVATE);
+	}
 }
 
 static void mem_cgroup_charge_statistics(struct mem_cgroup *memcg,
