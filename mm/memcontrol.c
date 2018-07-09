@@ -117,6 +117,7 @@ static const char * const mem_cgroup_events_names[] = {
 	"pgmajfault",
 	"pglost",
 	"pgstolen",
+	"pgactivated",
 };
 
 static const char * const mem_cgroup_clocks_names[] = {

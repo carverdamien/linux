@@ -271,7 +271,8 @@ static void __activate_page(struct page *page, struct lruvec *lruvec,
 		__count_vm_event(PGACTIVATE);
 		update_page_reclaim_stat(lruvec, file, 1);
 
-		mem_cgroup_clock(page->mem_cgroup, MEM_CGROUP_CLOCKS_ACTIVATE);
+		if (page->mem_cgroup)
+			mem_cgroup_events(page->mem_cgroup, MEM_CGROUP_EVENTS_PGACTIVATE, 1);
 	}
 }
 
