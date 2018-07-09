@@ -2105,6 +2105,7 @@ retry:
 			if (try_to_protect) {
 				protection = (*protectionfrom)(memcg);
 				if (protection) {
+					protection = min(protection, nr_to_reclaim);
 					progress = 0;
 					/*
 					 * Scan as much as protected to challenge the protection.
