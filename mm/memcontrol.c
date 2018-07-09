@@ -2105,10 +2105,11 @@ retry:
 			if (try_to_protect) {
 				protection = (*protectionfrom)(memcg);
 				if (protection) {
+					progress = 0;
 					/*
 					 * Scan as much as protected to challenge the protection.
 					 */
-					progress = scan_mem_cgroup_pages(memcg, NULL, protection,
+					scan_mem_cgroup_pages(memcg, NULL, protection,
 							      gfp_mask, may_swap, true);
 				}
 			}
