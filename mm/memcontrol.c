@@ -87,6 +87,12 @@ static bool cgroup_memory_nokmem;
 
 atomic_long_t global_clock;
 
+enum mem_cgroup_clocks_index {
+	MEM_CGROUP_CLOCKS_DEMAND,    /* Age of last page demand */
+	MEM_CGROUP_CLOCKS_ACTIVATE,  /* pgactivated value at time of last page demand */
+	MEM_CGROUP_CLOCKS_NR,
+};
+
 /* Whether the swap controller is active */
 #ifdef CONFIG_MEMCG_SWAP
 int do_swap_account __read_mostly;
@@ -604,6 +610,17 @@ mem_cgroup_read_stat(struct mem_cgroup *memcg, enum mem_cgroup_stat_index idx)
 	if (val < 0)
 		val = 0;
 	return val;
+}
+
+static void mem_cgroup_clock(struct mem_cgroup *memcg,
+				    enum mem_cgroup_clocks_index idx)
+{
+	if (memcg) {
+		memcg->activity.clock[MEM_CGROUP_CLOCKS_DEMAND] =
+			atomic_long_inc_return(&global_clock);
+		memcg->activity.clock[MEM_CGROUP_CLOCKS_ACTIVATE] =
+			mem_cgroup_read_stat(memcg, MEM_CGROUP_EVENTS_PGACTIVATE);
+	}
 }
 
 static unsigned long mem_cgroup_read_events(struct mem_cgroup *memcg,
@@ -2144,7 +2161,7 @@ static int try_charge(struct mem_cgroup *memcg, gfp_t gfp_mask,
 	bool may_swap = true;
 	bool drained = false;
 
-	mem_cgroup_clock(memcg, MEM_CGROUP_CLOCKS_DEMAND);
+	mem_cgroup_clock(memcg);
 
 	if (mem_cgroup_is_root(memcg))
 		return 0;

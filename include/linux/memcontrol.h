@@ -66,12 +66,6 @@ struct mem_cgroup_reclaim_cookie {
 	unsigned int generation;
 };
 
-enum mem_cgroup_clocks_index {
-	MEM_CGROUP_CLOCKS_DEMAND,    /* Age of last page demand */
-	MEM_CGROUP_CLOCKS_ACTIVATE,  /* Age of last page activation */
-	MEM_CGROUP_CLOCKS_NR,
-};
-
 struct activity_tracker {
 	unsigned long clock[MEM_CGROUP_CLOCKS_NR];
 	bool use[MEM_CGROUP_CLOCKS_NR];
@@ -320,14 +314,6 @@ static inline void mem_cgroup_sibling_pressure(struct mem_cgroup *f,
 		mem_cgroup_events(f,MEM_CGROUP_EVENTS_PGLOST,nr);
 		mem_cgroup_events(t,MEM_CGROUP_EVENTS_PGSTOLEN,nr);
 	}
-}
-
-static inline void mem_cgroup_clock(struct mem_cgroup *memcg,
-				    enum mem_cgroup_clocks_index idx)
-{
-	if (memcg)
-		memcg->activity.clock[idx] =
-			atomic_long_inc_return(&global_clock);
 }
 
 bool mem_cgroup_low(struct mem_cgroup *root, struct mem_cgroup *memcg);
@@ -594,11 +580,6 @@ static inline void mem_cgroup_events(struct mem_cgroup *memcg,
 static inline void mem_cgroup_sibling_pressure(struct mem_cgroup *f,
 					       struct mem_cgroup *t,
 					       unsigned int nr)
-{
-}
-
-static inline void mem_cgroup_clock(struct mem_cgroup *memcg,
-				    enum mem_cgroup_clocks_index idx)
 {
 }
 
