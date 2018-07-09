@@ -1983,9 +1983,8 @@ static unsigned long value_from_activity(struct mem_cgroup *memcg)
 	unsigned long ret = 0;
 	enum mem_cgroup_clocks_index i;
 
-	for(i=0; i<MEM_CGROUP_CLOCKS_NR; i++)
-		if(memcg->activity.use[i])
-			ret = max(ret, memcg->activity.clock[i]);
+	if (memcg->activity.use[MEM_CGROUP_CLOCKS_DEMAND])
+		ret = memcg->activity.clock[MEM_CGROUP_CLOCKS_DEMAND];
 
 	if(ret)
 		return ULONG_MAX - ret;
