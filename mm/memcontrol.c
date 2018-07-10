@@ -617,13 +617,23 @@ static unsigned long mem_cgroup_read_events(struct mem_cgroup *memcg,
 	return val;
 }
 
-static void mem_cgroup_clock(struct mem_cgroup *memcg)
+void mem_cgroup_clock(struct mem_cgroup *memcg,
+		      enum mem_cgroup_clocks_index idx,
+		      unsigned int nr_pages)
 {
 	if (memcg) {
-		memcg->activity.clock[MEM_CGROUP_CLOCKS_DEMAND] =
-			atomic_long_inc_return(&global_clock);
-		memcg->activity.clock[MEM_CGROUP_CLOCKS_ACTIVATE] =
-			mem_cgroup_read_events(memcg, MEM_CGROUP_EVENTS_PGACTIVATE);
+		unsigned long clck = atomic_long_inc_return(&global_clock);
+		switch(idx) {
+		case MEM_CGROUP_CLOCKS_DEMAND:
+			memcg->activity.clock[idx] = clck;
+			break;
+		case MEM_CGROUP_CLOCKS_ACTIVATE:
+			memcg->activity.clock[idx] =
+				max(clck + nr_pages, memcg->activity.clock[idx] + nr_pages);
+			break;
+		default:
+			BUG();
+		}
 	}
 }
 
@@ -1974,13 +1984,11 @@ static unsigned long value_from_reclaim_order(struct mem_cgroup *memcg)
 static unsigned long value_from_activity(struct mem_cgroup *memcg)
 {
 	unsigned long ret = 0;
-	unsigned long pgactivated = mem_cgroup_read_events(memcg, MEM_CGROUP_EVENTS_PGACTIVATE);
+	enum mem_cgroup_clocks_index i;
 
-	if (memcg->activity.use[MEM_CGROUP_CLOCKS_DEMAND]) {
-		ret = memcg->activity.clock[MEM_CGROUP_CLOCKS_DEMAND];
-		if (memcg->activity.use[MEM_CGROUP_CLOCKS_ACTIVATE])
-			ret += pgactivated - memcg->activity.clock[MEM_CGROUP_CLOCKS_ACTIVATE];
-	}
+	for(i=0; i<MEM_CGROUP_CLOCKS_NR; i++)
+		if(memcg->activity.use[i])
+			ret = max(ret, memcg->activity.clock[i]);
 
 	if(ret)
 		return ULONG_MAX - ret;
@@ -2156,7 +2164,7 @@ static int try_charge(struct mem_cgroup *memcg, gfp_t gfp_mask,
 	bool may_swap = true;
 	bool drained = false;
 
-	mem_cgroup_clock(memcg);
+	mem_cgroup_clock(memcg, MEM_CGROUP_CLOCKS_DEMAND, nr_pages);
 
 	if (mem_cgroup_is_root(memcg))
 		return 0;

@@ -1252,8 +1252,10 @@ keep:
 	list_splice(&ret_pages, page_list);
 	count_vm_events(PGACTIVATE, pgactivate);
 
-	if (pgactivate)
+	if (pgactivate) {
+		mem_cgroup_clock(mem_cgroup, MEM_CGROUP_CLOCKS_ACTIVATE, pgactivate);
 		mem_cgroup_events(mem_cgroup, MEM_CGROUP_EVENTS_PGACTIVATE, pgactivate);
+	}
 
 	*ret_nr_dirty += nr_dirty;
 	*ret_nr_congested += nr_congested;

@@ -68,7 +68,7 @@ struct mem_cgroup_reclaim_cookie {
 
 enum mem_cgroup_clocks_index {
 	MEM_CGROUP_CLOCKS_DEMAND,    /* Age of last page demand */
-	MEM_CGROUP_CLOCKS_ACTIVATE,  /* pgactivated value at time of last page demand */
+	MEM_CGROUP_CLOCKS_ACTIVATE,  /* */
 	MEM_CGROUP_CLOCKS_NR,
 };
 
@@ -321,6 +321,10 @@ static inline void mem_cgroup_sibling_pressure(struct mem_cgroup *f,
 		mem_cgroup_events(t,MEM_CGROUP_EVENTS_PGSTOLEN,nr);
 	}
 }
+
+void mem_cgroup_clock(struct mem_cgroup *memcg,
+		      enum mem_cgroup_clocks_index idx,
+		      unsigned int nr_pages);
 
 bool mem_cgroup_low(struct mem_cgroup *root, struct mem_cgroup *memcg);
 
@@ -586,6 +590,12 @@ static inline void mem_cgroup_events(struct mem_cgroup *memcg,
 static inline void mem_cgroup_sibling_pressure(struct mem_cgroup *f,
 					       struct mem_cgroup *t,
 					       unsigned int nr)
+{
+}
+
+static inline void mem_cgroup_clock(struct mem_cgroup *memcg,
+				    enum mem_cgroup_clocks_index idx,
+				    unsigned int nr_pages)
 {
 }
 
