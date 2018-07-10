@@ -1974,31 +1974,19 @@ static unsigned long value_from_reclaim_order(struct mem_cgroup *memcg)
 static unsigned long value_from_activity(struct mem_cgroup *memcg)
 {
 	unsigned long ret = 0;
+	unsigned long pgactivated = mem_cgroup_read_events(memcg, MEM_CGROUP_EVENTS_PGACTIVATE);
 
-	if (memcg->activity.use[MEM_CGROUP_CLOCKS_DEMAND])
+	if (memcg->activity.use[MEM_CGROUP_CLOCKS_DEMAND]) {
 		ret = memcg->activity.clock[MEM_CGROUP_CLOCKS_DEMAND];
+		if (memcg->activity.use[MEM_CGROUP_CLOCKS_ACTIVATE])
+			ret += pgactivated - memcg->activity.clock[MEM_CGROUP_CLOCKS_ACTIVATE];
+	}
 
 	if(ret)
 		return ULONG_MAX - ret;
 
 	/* Returns maximum protection if does not want to use clock */
 	return 0;
-}
-
-static unsigned long protection_from_activity(struct mem_cgroup *memcg)
-{
-	unsigned long ret = 0;
-
-	if (memcg->activity.use[MEM_CGROUP_CLOCKS_DEMAND]) {
-		if (memcg->activity.use[MEM_CGROUP_CLOCKS_ACTIVATE]) {
-			unsigned long pgactivated =
-				mem_cgroup_read_events(memcg, MEM_CGROUP_EVENTS_PGACTIVATE);
-			ret = pgactivated - memcg->activity.clock[MEM_CGROUP_CLOCKS_ACTIVATE];
-			memcg->activity.clock[MEM_CGROUP_CLOCKS_ACTIVATE] = pgactivated;
-		}
-	}
-
-	return ret;
 }
 
 static unsigned long mem_cgroup_priority(struct mem_cgroup *memcg,
@@ -2080,7 +2068,6 @@ static unsigned int rc_init(struct reclaim_control *rc,
 }
 
 static unsigned long do_reclaim_policy(unsigned long total_nr_reclaimed,
-				       unsigned long (*protectionfrom)(struct mem_cgroup*),
 				       const struct reclaim_control *rc,
 				       const unsigned int nr_rc,
 				       struct mem_cgroup *mem_charging,
@@ -2088,52 +2075,21 @@ static unsigned long do_reclaim_policy(unsigned long total_nr_reclaimed,
 				       const gfp_t gfp_mask,
 				       const bool may_swap)
 {
-	bool try_to_protect = (protectionfrom != NULL);
 	unsigned int i = 0;
-
-retry:
 	/* reclaim memory to specific mem_cgroups */
 	for(i=0; i<nr_rc && total_nr_reclaimed < total_nr_to_reclaim; i++) {
 		unsigned long nr_to_reclaim;
 		unsigned long progress;
 
 		do {
-			unsigned long protection = 0;
-			struct mem_cgroup *memcg = rc[i].key;
-
-			progress = 0;
 			nr_to_reclaim = total_nr_to_reclaim - total_nr_reclaimed;
-
-			/*
-			 * First pass tries to protect cgroups by using force scan without reclaims.
-			 */
-			if (try_to_protect) {
-				protection = (*protectionfrom)(memcg);
-				if (protection) {
-					protection = min(protection, nr_to_reclaim);
-					/*
-					 * Scan as much as protected to challenge the protection.
-					 */
-					scan_mem_cgroup_pages(memcg, NULL, protection,
-							      gfp_mask, may_swap, true);
-				}
-			}
-
-			if (!protection)
-				progress = try_to_free_mem_cgroup_pages(memcg,
-									mem_charging,
-									nr_to_reclaim,
-									gfp_mask, may_swap, true);
-
+			progress = try_to_free_mem_cgroup_pages(rc[i].key,
+								mem_charging,
+								nr_to_reclaim,
+								gfp_mask, may_swap, true);
 			total_nr_reclaimed += progress;
 		} while (progress && total_nr_reclaimed < total_nr_to_reclaim);
 	}
-
-	if (try_to_protect && total_nr_reclaimed < total_nr_to_reclaim) {
-		try_to_protect = false;
-		goto retry;
-	}
-
 	return total_nr_reclaimed;
 }
 
@@ -2147,10 +2103,8 @@ static unsigned long reclaim_policy(struct mem_cgroup *mem_charging,
 	struct reclaim_control *rc = NULL;
 	unsigned int _nr_rc = 0;
 	unsigned int i;
-	unsigned long (*vfunc[])(struct mem_cgroup*) =
+	unsigned long (*func[])(struct mem_cgroup*) =
 		{value_from_reclaim_order, value_from_soft_limit, value_from_activity};
-	unsigned long (*pfunc[])(struct mem_cgroup*) =
-		{NULL, NULL, protection_from_activity};
 
 	if (mem_cgroup_is_root(mem_over_limit) || mem_cgroup_is_root(mem_charging))
 		goto out;
@@ -2167,10 +2121,9 @@ static unsigned long reclaim_policy(struct mem_cgroup *mem_charging,
 	for(i=0; i<3 && total_nr_reclaimed < total_nr_to_reclaim; i++) {
 		unsigned int nr_rc = rc_init(rc,
 					     _nr_rc,
-					     vfunc[i],
+					     func[i],
 					     mem_over_limit);
 		total_nr_reclaimed += do_reclaim_policy(total_nr_reclaimed,
-							pfunc[i],
 							rc,
 							nr_rc,
 							mem_charging,
