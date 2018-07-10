@@ -1988,13 +1988,16 @@ static unsigned long value_from_activity(struct mem_cgroup *memcg)
 static unsigned long protection_from_activity(struct mem_cgroup *memcg)
 {
 	unsigned long ret = 0;
-	if (memcg->activity.use[MEM_CGROUP_CLOCKS_DEMAND])
+
+	if (memcg->activity.use[MEM_CGROUP_CLOCKS_DEMAND]) {
 		if (memcg->activity.use[MEM_CGROUP_CLOCKS_ACTIVATE]) {
 			unsigned long pgactivated =
 				mem_cgroup_read_events(memcg, MEM_CGROUP_EVENTS_PGACTIVATE);
 			ret = pgactivated - memcg->activity.clock[MEM_CGROUP_CLOCKS_ACTIVATE];
 			memcg->activity.clock[MEM_CGROUP_CLOCKS_ACTIVATE] = pgactivated;
 		}
+	}
+
 	return ret;
 }
 
@@ -2097,6 +2100,8 @@ retry:
 		do {
 			unsigned long protection = 0;
 			struct mem_cgroup *memcg = rc[i].key;
+
+			progress = 0;
 			nr_to_reclaim = total_nr_to_reclaim - total_nr_reclaimed;
 
 			/*
@@ -2106,7 +2111,6 @@ retry:
 				protection = (*protectionfrom)(memcg);
 				if (protection) {
 					protection = min(protection, nr_to_reclaim);
-					progress = 0;
 					/*
 					 * Scan as much as protected to challenge the protection.
 					 */
