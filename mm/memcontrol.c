@@ -3516,6 +3516,7 @@ static int memcg_stat_show(struct seq_file *m, void *v)
 	seq_printf(m, "reclaim_order %lu\n", mem_cgroup_priority(memcg,value_from_reclaim_order));
 	seq_printf(m, "soft_priority %lu\n", mem_cgroup_priority(memcg,value_from_soft_limit));
 	seq_printf(m, "clck_priority %lu\n", mem_cgroup_priority(memcg,value_from_activity));
+	seq_printf(m, "valf_activity %lu\n", ULONG_MAX - value_from_activity(memcg));
 	seq_printf(m, "soft_excess %lu\n", soft_limit_excess(memcg));
 	for(i=0; i<MEM_CGROUP_CLOCKS_NR; i++)
 		seq_printf(m, "%s %lu\n",
