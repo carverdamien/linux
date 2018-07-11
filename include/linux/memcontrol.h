@@ -85,6 +85,7 @@ enum mem_cgroup_events_index {
 	MEM_CGROUP_EVENTS_PGLOST,	/* # of pages lost to others (Estimation) */
 	MEM_CGROUP_EVENTS_PGSTOLEN,	/* # of pages stolen from others (Estimation) */
 	MEM_CGROUP_EVENTS_PGACTIVATE,   /* # of pages activated */
+	MEM_CGROUP_EVENTS_PGFSCAN,      /* # of pages force scanned */
 	MEM_CGROUP_EVENTS_NSTATS,
 	/* default hierarchy events */
 	MEMCG_LOW = MEM_CGROUP_EVENTS_NSTATS,

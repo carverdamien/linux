@@ -118,6 +118,7 @@ static const char * const mem_cgroup_events_names[] = {
 	"pglost",
 	"pgstolen",
 	"pgactivated",
+	"pgfscanned",
 };
 
 static const char * const mem_cgroup_clocks_names[] = {
@@ -2097,6 +2098,13 @@ static unsigned long do_reclaim_policy(unsigned long total_nr_reclaimed,
 								gfp_mask, may_swap, true);
 			total_nr_reclaimed += progress;
 		} while (progress && total_nr_reclaimed < total_nr_to_reclaim);
+	}
+	/* force scan the remainings */
+	for (; i<nr_rc; i++) {
+		scan_mem_cgroup_pages(rc[i].key,
+				      NULL,
+				      total_nr_to_reclaim/nr_rc,
+				      gfp_mask, may_swap, true);
 	}
 	return total_nr_reclaimed;
 }

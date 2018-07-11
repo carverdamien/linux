@@ -3020,13 +3020,15 @@ unsigned long scan_mem_cgroup_pages(struct mem_cgroup *memcg,
 				    bool may_swap,
 				    bool target_mem_cgroup_only)
 {
-	return do_try_to_free_mem_cgroup_pages(memcg,
+	unsigned long pgfscanned = do_try_to_free_mem_cgroup_pages(memcg,
 					       mem_charging,
 					       nr_pages,
 					       gfp_mask,
 					       may_swap,
 					       target_mem_cgroup_only,
 					       true);
+	mem_cgroup_events(memcg, MEM_CGROUP_EVENTS_PGFSCAN, pgfscanned);
+	return pgfscanned;
 }
 #endif
 
