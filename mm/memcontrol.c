@@ -2103,7 +2103,7 @@ static unsigned long do_reclaim_policy(unsigned long total_nr_reclaimed,
 	for (; i<nr_rc; i++) {
 		scan_mem_cgroup_pages(rc[i].key,
 				      NULL,
-				      total_nr_to_reclaim/nr_rc,
+				      total_nr_to_reclaim,
 				      gfp_mask, may_swap, true);
 	}
 	return total_nr_reclaimed;
