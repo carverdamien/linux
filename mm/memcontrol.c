@@ -622,13 +622,14 @@ void mem_cgroup_clock(struct mem_cgroup *memcg,
 		      enum mem_cgroup_clocks_index idx,
 		      unsigned int nr_pages)
 {
+	unsigned long clck;
 	if (memcg) {
-		unsigned long clck = atomic_long_inc_return(&global_clock);
 		switch(idx) {
 		case MEM_CGROUP_CLOCKS_DEMAND:
-			memcg->activity.clock[idx] = clck;
+			memcg->activity.clock[idx] = atomic_long_inc_return(&global_clock);
 			break;
 		case MEM_CGROUP_CLOCKS_ACTIVATE:
+			clck = atomic_long_read(&global_clock);
 			memcg->activity.clock[idx] =
 				max(clck + nr_pages, memcg->activity.clock[idx] + nr_pages);
 			break;
