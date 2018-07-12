@@ -3583,6 +3583,7 @@ static int memcg_stat_show(struct seq_file *m, void *v)
 			   mem_cgroup_clocks_names[i],
 			   memcg->enabled_clck[i] == 1);
 	}
+	seq_printf(m, "use_scan %d\n", memcg->enabled_scan == 1);
 	return 0;
 }
 
