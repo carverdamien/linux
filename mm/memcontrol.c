@@ -626,12 +626,12 @@ void mem_cgroup_clock(struct mem_cgroup *memcg,
 	if (memcg) {
 		switch(idx) {
 		case MEM_CGROUP_CLOCKS_DEMAND:
-			memcg->activity.clock[idx] = atomic_long_inc_return(&global_clock);
+			memcg->clck[idx] = atomic_long_inc_return(&global_clock);
 			break;
 		case MEM_CGROUP_CLOCKS_ACTIVATE:
 			clck = atomic_long_read(&global_clock);
-			memcg->activity.clock[idx] =
-				max(clck + nr_pages, memcg->activity.clock[idx] + nr_pages);
+			clck = max(clck, memcg->clck[idx]);
+			memcg->clck[idx] = clck + nr_pages;
 			break;
 		default:
 			BUG();
@@ -1983,14 +1983,14 @@ static unsigned long value_from_reclaim_order(struct mem_cgroup *memcg)
    if soft_limit is not used it has PAGE_COUNTER_MAX value.
 */
 
-static unsigned long value_from_activity(struct mem_cgroup *memcg)
+static unsigned long value_from_clck(struct mem_cgroup *memcg)
 {
 	unsigned long ret = 0;
 	enum mem_cgroup_clocks_index i;
 
 	for(i=0; i<MEM_CGROUP_CLOCKS_NR; i++)
-		if(memcg->activity.use[i])
-			ret = max(ret, memcg->activity.clock[i]);
+		if(memcg->enabled_clck[i])
+			ret = max(ret, memcg->clck[i]);
 
 	if(ret)
 		return ULONG_MAX - ret;
@@ -2102,10 +2102,11 @@ static unsigned long do_reclaim_policy(unsigned long total_nr_reclaimed,
 	}
 	/* force scan the remainings */
 	for (; i<nr_rc; i++) {
-		scan_mem_cgroup_pages(rc[i].key,
-				      NULL,
-				      total_nr_to_reclaim,
-				      gfp_mask, may_swap, true);
+		if (rc[i].key->enabled_scan)
+			scan_mem_cgroup_pages(rc[i].key,
+					      NULL,
+					      total_nr_to_reclaim,
+					      gfp_mask, may_swap, true);
 	}
 	return total_nr_reclaimed;
 }
@@ -2121,7 +2122,7 @@ static unsigned long reclaim_policy(struct mem_cgroup *mem_charging,
 	unsigned int _nr_rc = 0;
 	unsigned int i;
 	unsigned long (*func[])(struct mem_cgroup*) =
-		{value_from_reclaim_order, value_from_soft_limit, value_from_activity};
+		{value_from_reclaim_order, value_from_soft_limit, value_from_clck};
 
 	if (mem_cgroup_is_root(mem_over_limit) || mem_cgroup_is_root(mem_charging))
 		goto out;
@@ -2953,28 +2954,38 @@ static int mem_cgroup_hierarchy_write(struct cgroup_subsys_state *css,
 }
 
 
-/* 
+/*
    TODO: make more generic read/write.
    Example:
-   $ cat memory.clock
+   $ cat memory.enabled
+   heirarchy 0
    demand 0
    activate 0
-   $ echo {demand,activate} > memory.clock
-   $ cat memory.clock
+   scan 0
+   $ echo {scan,activate} > memory.clock
+   $ cat memory.enabled
+   heirarchy 0
    demand 1
    activate 1
+   scan 1
 */
 
 static u64 mem_cgroup_use_clock_demand_read(struct cgroup_subsys_state *css,
 					    struct cftype *cft)
 {
-	return mem_cgroup_from_css(css)->activity.use[MEM_CGROUP_CLOCKS_DEMAND];
+	return mem_cgroup_from_css(css)->enabled_clck[MEM_CGROUP_CLOCKS_DEMAND];
 }
 
 static u64 mem_cgroup_use_clock_activate_read(struct cgroup_subsys_state *css,
 					      struct cftype *cft)
 {
-	return mem_cgroup_from_css(css)->activity.use[MEM_CGROUP_CLOCKS_ACTIVATE];
+	return mem_cgroup_from_css(css)->enabled_clck[MEM_CGROUP_CLOCKS_ACTIVATE];
+}
+
+static u64 mem_cgroup_use_scan_read(struct cgroup_subsys_state *css,
+					      struct cftype *cft)
+{
+	return mem_cgroup_from_css(css)->enabled_scan;
 }
 
 static int mem_cgroup_use_clock_demand_write(struct cgroup_subsys_state *css,
@@ -2982,10 +2993,18 @@ static int mem_cgroup_use_clock_demand_write(struct cgroup_subsys_state *css,
 {
 	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
 
-	if (val == 0 || val == 1)
-		memcg->activity.use[MEM_CGROUP_CLOCKS_DEMAND] = val;
-	else
+	switch(val) {
+	case 0:
+		/* disable demand implies disable activate */
+		memcg->enabled_clck[MEM_CGROUP_CLOCKS_DEMAND]   = val;
+		memcg->enabled_clck[MEM_CGROUP_CLOCKS_ACTIVATE] = val;
+		break;
+	case 1:
+		memcg->enabled_clck[MEM_CGROUP_CLOCKS_DEMAND]   = val;
+		break;
+	default:
 		return -EINVAL;
+	}
 
 	return 0;
 }
@@ -2995,10 +3014,18 @@ static int mem_cgroup_use_clock_activate_write(struct cgroup_subsys_state *css,
 {
 	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
 
-	if (val == 0 || val == 1)
-		memcg->activity.use[MEM_CGROUP_CLOCKS_ACTIVATE] = val;
-	else
+	switch(val) {
+	case 0:
+		memcg->enabled_clck[MEM_CGROUP_CLOCKS_ACTIVATE] = val;
+		break;
+	case 1:
+		/* enable activate implies enable demand */
+		memcg->enabled_clck[MEM_CGROUP_CLOCKS_DEMAND]   = val;
+		memcg->enabled_clck[MEM_CGROUP_CLOCKS_ACTIVATE] = val;
+		break;
+	default:
 		return -EINVAL;
+	}
 
 	return 0;
 }
@@ -3009,6 +3036,19 @@ static int mem_cgroup_reclaim_order_write(struct cgroup_subsys_state *css,
 	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
 
 	memcg->reclaim_order = val;
+
+	return 0;
+}
+
+static int mem_cgroup_use_scan_write(struct cgroup_subsys_state *css,
+				 struct cftype *cft, u64 val)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
+	
+	if (val == 0 || val == 1)
+		memcg->enabled_scan = val;
+	else
+		return -EINVAL;
 
 	return 0;
 }
@@ -3532,13 +3572,17 @@ static int memcg_stat_show(struct seq_file *m, void *v)
 #endif
 	seq_printf(m, "reclaim_order %lu\n", mem_cgroup_priority(memcg,value_from_reclaim_order));
 	seq_printf(m, "soft_priority %lu\n", mem_cgroup_priority(memcg,value_from_soft_limit));
-	seq_printf(m, "clck_priority %lu\n", mem_cgroup_priority(memcg,value_from_activity));
-	seq_printf(m, "valf_activity %lu\n", ULONG_MAX - value_from_activity(memcg));
+	seq_printf(m, "clck_priority %lu\n", mem_cgroup_priority(memcg,value_from_clck));
+	seq_printf(m, "value_from_clck %lu\n", ULONG_MAX - value_from_clck(memcg));
 	seq_printf(m, "soft_excess %lu\n", soft_limit_excess(memcg));
-	for(i=0; i<MEM_CGROUP_CLOCKS_NR; i++)
+	for(i=0; i<MEM_CGROUP_CLOCKS_NR; i++) {
 		seq_printf(m, "%s %lu\n",
 			   mem_cgroup_clocks_names[i],
-			   memcg->activity.clock[i]);
+			   memcg->clck[i]);
+		seq_printf(m, "use_%s %d\n",
+			   mem_cgroup_clocks_names[i],
+			   memcg->enabled_clck[i] == 1);
+	}
 	return 0;
 }
 
@@ -4286,6 +4330,11 @@ static struct cftype mem_cgroup_legacy_files[] = {
 	{
 		.name = "reclaim_order",
 		.write_u64 = mem_cgroup_reclaim_order_write,
+	},
+	{
+		.name = "use_scan",
+		.write_u64 = mem_cgroup_use_scan_write,
+		.read_u64 = mem_cgroup_use_scan_read,
 	},
 	{
 		.name = "cgroup.event_control",		/* XXX: for compat */

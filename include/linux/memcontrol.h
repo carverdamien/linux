@@ -68,13 +68,8 @@ struct mem_cgroup_reclaim_cookie {
 
 enum mem_cgroup_clocks_index {
 	MEM_CGROUP_CLOCKS_DEMAND,    /* Age of last page demand */
-	MEM_CGROUP_CLOCKS_ACTIVATE,  /* */
+	MEM_CGROUP_CLOCKS_ACTIVATE,  /* Age of last page activation */
 	MEM_CGROUP_CLOCKS_NR,
-};
-
-struct activity_tracker {
-	unsigned long clock[MEM_CGROUP_CLOCKS_NR];
-	bool use[MEM_CGROUP_CLOCKS_NR];
 };
 
 enum mem_cgroup_events_index {
@@ -209,9 +204,11 @@ struct mem_cgroup {
 	/* vmpressure notifications */
 	struct vmpressure vmpressure;
 
-	struct activity_tracker activity;
-
+	/* Reclaim Control */
 	unsigned long reclaim_order;
+	unsigned long clck[MEM_CGROUP_CLOCKS_NR];
+	bool  enabled_clck[MEM_CGROUP_CLOCKS_NR];
+	bool  enabled_scan;
 
 	/*
 	 * Should the accounting and control be hierarchical, per subtree?
@@ -292,7 +289,6 @@ struct mem_cgroup {
 };
 
 extern struct mem_cgroup *root_mem_cgroup;
-extern atomic_long_t global_clock;
 
 static inline bool mem_cgroup_disabled(void)
 {
